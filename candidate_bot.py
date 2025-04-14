@@ -46,23 +46,56 @@ async def send_main_menu(update, context, message=None, edit=False):
     
     # Define all menu options with their locked/unlocked status and test results
     menu_options = [
-        ("about_company", "🔓 Узнать о компании"),
-        ("primary_file", "🔓 Первичный файл"),
-        ("where_to_start", "🔒 С чего начать"),
-        ("preparation_materials", "🔒 Материалы для подготовки"),
-        ("take_test", "🔒 Пройти испытание"),
-        ("interview_prep", "🔒 Подготовка к собеседованию"),
-        ("schedule_interview", "🔒 Пройти собеседование")
+        ("about_company", "🟢 Узнать о компании"),
+        ("primary_file", "🟢 Первичный файл"),
+        ("where_to_start", "🔴 С чего начать"),
+        ("preparation_materials", "🔴 Материалы для подготовки"),
+        ("take_test", "🔴 Пройти испытание"),
+        ("interview_prep", "🔴 Подготовка к собеседованию"),
+        ("schedule_interview", "🔴 Пройти собеседование")
     ]
     
     # Create keyboard with unlocked buttons and test status indicators
     keyboard = []
     for stage_id, stage_name in menu_options:
+        # Special handling for primary_file to show test result status
+        if stage_id == "primary_file" and "primary_test" in user_test_results:
+            if user_test_results["primary_test"]:
+                # Test passed
+                stage_name = stage_name.replace("🟢", "✅")  # Replace green circle with checkmark
+            else:
+                # Test failed
+                stage_name = stage_name.replace("🟢", "❌")  # Replace green circle with X mark
+            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
+            continue  # Skip the rest of the loop for this item
+            
+        # Special handling for where_to_start - only unlock after primary test
+        if stage_id == "where_to_start":
+            # Check if there's a test result for primary_test
+            if "primary_test" in user_test_results:
+                # If there's a test result, this stage should be unlocked
+                if stage_id not in unlocked_stages:
+                    db.unlock_stage(user_id, "where_to_start")
+                    unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
+                
+                # Check if there's a test result for this stage
+                if "where_to_start_test" in user_test_results:
+                    if user_test_results["where_to_start_test"]:
+                        # Test passed
+                        stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
+                    else:
+                        # Test failed
+                        stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
+                else:
+                    # No test result - show as unlocked
+                    stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
+                
+                keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
+                continue  # Skip the rest of the loop for this item
+        
         # Get test status for this stage if applicable
         test_name = None
-        if stage_id == "where_to_start":
-            test_name = "primary_test"
-        elif stage_id == "preparation_materials":
+        if stage_id == "preparation_materials":
             test_name = "where_to_start_test"
         elif stage_id == "take_test":
             test_name = "preparation_test"
@@ -273,7 +306,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         warning_message = (
             "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
             "Перед началом теста, пожалуйста, внимательно ознакомьтесь с материалами. " +
-            "<b>Если вы не пройдете тест, вы будете заблокированы в системе.</b>\n\n" +
+            "<b>Если вы не пройдете успешно хотя бы половину всех тестов, вы будете заблокированы в системе.</b>\n\n" +
             "Вы уверены, что готовы начать тест?"
         )
         
@@ -334,7 +367,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         warning_message = (
             "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
             "Перед началом теста, пожалуйста, внимательно ознакомьтесь с материалами. " +
-            "<b>Если вы не пройдете тест, вы будете заблокированы в системе.</b>\n\n" +
+            "<b>Если вы не пройдете успешно хотя бы половину всех тестов, вы будете заблокированы в системе.</b>\n\n" +
             "Вы уверены, что готовы начать тест?"
         )
         
@@ -382,7 +415,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         warning_message = (
             "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
             "Перед началом теста, пожалуйста, внимательно ознакомьтесь с материалами. " +
-            "<b>Если вы не пройдете тест, вы будете заблокированы в системе.</b>\n\n" +
+            "<b>Если вы не пройдете успешно хотя бы половину всех тестов, вы будете заблокированы в системе.</b>\n\n" +
             "Вы уверены, что готовы начать тест?"
         )
         
@@ -492,7 +525,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for stage_id, stage_name in menu_options:
                     # Add the standard menu options with appropriate locks/unlocks
                     if stage_id in unlocked_stages:
-                        stage_name = stage_name.replace("🔒", "🔓")  # Replace lock with unlock
+                        stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
                         keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
                     else:
                         keyboard.append([InlineKeyboardButton(stage_name, callback_data="locked")])
@@ -586,11 +619,35 @@ async def handle_test_answer(update, context):
     
     # Check if the answer is correct
     correct_answer = test_data["questions"][current_question]["correct_answer"]
+    question_text = query.message.text  # Store original question text
+    options_keyboard = query.message.reply_markup  # Store original keyboard
+    
+    # Show temporary feedback message by editing the current message
     if selected_answer == correct_answer:
         context.user_data["correct_answers"] = correct_answers + 1
-        await query.message.reply_text("✅ Правильно!")
+        try:
+            await query.edit_message_text("✅ Правильно!")
+        except Exception as e:
+            logger.error(f"Error editing message for feedback: {e}")
+            # Fallback to sending a new message if editing fails
+            await query.message.reply_text("✅ Правильно!")
     else:
-        await query.message.reply_text(f"❌ Неправильно. Правильный ответ: {test_data['questions'][current_question]['options'][correct_answer]}")
+        try:
+            await query.edit_message_text(f"❌ Неправильно. Правильный ответ: {test_data['questions'][current_question]['options'][correct_answer]}")
+        except Exception as e:
+            logger.error(f"Error editing message for feedback: {e}")
+            # Fallback to sending a new message if editing fails
+            await query.message.reply_text(f"❌ Неправильно. Правильный ответ: {test_data['questions'][current_question]['options'][correct_answer]}")
+    
+    # Wait for 3 seconds
+    await asyncio.sleep(3)
+    
+    # Restore the question if we edited it
+    try:
+        if hasattr(query, 'message') and query.message:
+            await query.edit_message_text(question_text, reply_markup=options_keyboard)
+    except Exception as e:
+        logger.error(f"Error restoring question: {e}")
     
     # Move to the next question or finish the test
     context.user_data["current_question"] = current_question + 1
@@ -663,15 +720,12 @@ async def handle_test_answer(update, context):
         else:
             result_message += "<b>К сожалению, вы не прошли этот тест.</b> Вы можете продолжить изучение материалов, но если вы не пройдете больше половины тестов, вы будете заблокированы."
         
-        # Add a button to return to the main menu
-        keyboard = [[InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Send the result message with the return button
+        # Send the result message
         await query.message.reply_text(result_message, parse_mode='HTML')
-        await query.message.reply_text("Вы можете вернуться в главное меню:", reply_markup=reply_markup)
         
-        # Don't automatically show the main menu, let the user click the button
+        # Show the main menu after test completion
+        await send_main_menu(update, context)
+        
         return CandidateStates.MAIN_MENU
 
 async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -2,6 +2,24 @@ import sqlite3
 import json
 from config import DATABASE_NAME
 
+def reset_database():
+    """Reset the database by dropping all tables and recreating them"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    # Drop all tables if they exist
+    cursor.execute("DROP TABLE IF EXISTS developer_messages")
+    cursor.execute("DROP TABLE IF EXISTS interview_requests")
+    cursor.execute("DROP TABLE IF EXISTS test_submissions")
+    cursor.execute("DROP TABLE IF EXISTS users")
+    
+    conn.commit()
+    conn.close()
+    
+    # Reinitialize the database
+    init_db()
+    print("Database has been reset successfully.")
+
 def init_db():
     """Initialize the database with required tables"""
     conn = sqlite3.connect(DATABASE_NAME)
