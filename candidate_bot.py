@@ -206,8 +206,17 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Replace the current menu message with the content
         try:
-            # Edit the current message (which is the menu) to show the content
-            await query.edit_message_text(content)
+            # Add back button at the bottom of the content
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Edit the current message (which is the menu) to show the content with back button
+            await query.edit_message_text(
+                content,
+                reply_markup=reply_markup
+            )
             
             # Store this message ID as the content message for future reference
             context.user_data["content_message_id"] = query.message.message_id
@@ -215,9 +224,6 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error editing message: {e}")
             # If editing fails, just return to main menu
             return await send_main_menu(update, context, edit=True)
-        
-        # Send the main menu as a new message
-        await send_main_menu(update, context)
         
         return CandidateStates.MAIN_MENU
     
@@ -227,9 +233,10 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Replace the current menu message with the content
         try:
-            # Add a test button at the bottom of the content
+            # Add test and back buttons at the bottom of the content
             keyboard = [
-                [InlineKeyboardButton("✅ Пройти тест по первичному файлу", callback_data="primary_test")]
+                [InlineKeyboardButton("✅ Пройти тест по первичному файлу", callback_data="primary_test")],
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -246,12 +253,22 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # If editing fails, just return to main menu
             return await send_main_menu(update, context, edit=True)
         
-        # Send the main menu as a new message
-        await send_main_menu(update, context)
-        
         return CandidateStates.MAIN_MENU
     
     elif query.data == "primary_test":
+        # Delete the content message if it exists
+        try:
+            if "content_message_id" in context.user_data:
+                # Delete the content message
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=context.user_data["content_message_id"]
+                )
+                # Remove the content message ID from user data
+                del context.user_data["content_message_id"]
+        except Exception as e:
+            logger.error(f"Error deleting content message: {e}")
+        
         # Show warning before starting the test
         warning_message = (
             "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
@@ -266,7 +283,14 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await query.message.reply_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+        # Edit the current message to show the warning
+        try:
+            await query.edit_message_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            # If editing fails, send as a new message
+            await query.message.reply_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+        
         return CandidateStates.PRIMARY_FILE
         
     elif query.data == "confirm_primary_test":
@@ -282,8 +306,14 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["current_question"] = 0
         context.user_data["correct_answers"] = 0
         
-        # Send the first question
-        await send_test_question(update, context)
+        # Send the first question by editing the current message
+        try:
+            await send_test_question(update, context, edit_message=True)
+        except Exception as e:
+            logger.error(f"Error editing message for test: {e}")
+            # If editing fails, send as a new message
+            await send_test_question(update, context, edit_message=False)
+        
         return CandidateStates.PRIMARY_TEST
     
     elif query.data == "where_to_start" and "where_to_start" in unlocked_stages:
@@ -504,7 +534,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Default case - return to main menu
     return await send_main_menu(update, context)
 
-async def send_test_question(update, context):
+async def send_test_question(update, context, edit_message=False):
     """Send a test question to the user with smart message updates"""
     test_data = context.user_data.get("test_data")
     current_question = context.user_data.get("current_question", 0)
@@ -523,11 +553,11 @@ async def send_test_question(update, context):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Check if we should edit the previous message or send a new one
-    if current_question > 0 and hasattr(update, 'callback_query') and update.callback_query:
-        # Edit the previous message to show the new question (reduces chat clutter)
+    # Check if we should edit the current message or send a new one
+    if (edit_message or current_question > 0) and hasattr(update, 'callback_query') and update.callback_query:
+        # Edit the current message to show the question (reduces chat clutter)
         try:
-            await update.callback_query.message.edit_text(question_text, reply_markup=reply_markup)
+            await update.callback_query.edit_message_text(question_text, reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Error editing message: {e}")
             # Fallback to sending a new message if editing fails
