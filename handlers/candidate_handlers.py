@@ -41,12 +41,12 @@ async def send_main_menu(update, context, message=None, edit=False):
             keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
             continue  # Skip the rest of the loop for this item
             
-        # Special handling for where_to_start - only unlock after primary test
+        # Special handling for where_to_start - unlock after primary test regardless of result
         if stage_id == "where_to_start":
             # Check if there's a test result for primary_test
             if "primary_test" in user_test_results:
-                # If there's a test result, this stage should be unlocked
-                if stage_id not in unlocked_stages and user_test_results["primary_test"]:
+                # If there's a test result, this stage should be unlocked regardless of pass/fail
+                if stage_id not in unlocked_stages:
                     db.unlock_stage(user_id, "where_to_start")
                     unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
                 
@@ -62,18 +62,15 @@ async def send_main_menu(update, context, message=None, edit=False):
                     # No test result - show as unlocked
                     stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
                 
-                if stage_id in unlocked_stages:
-                    keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
-                else:
-                    keyboard.append([InlineKeyboardButton(stage_name, callback_data="locked")])
+                keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
                 continue  # Skip the rest of the loop for this item
         
-        # Special handling for preparation_materials - only unlock after where_to_start_test
+        # Special handling for preparation_materials - unlock after where_to_start_test regardless of result
         if stage_id == "preparation_materials":
             # Check if there's a test result for where_to_start_test
             if "where_to_start_test" in user_test_results:
-                # If there's a test result, this stage should be unlocked only if test passed
-                if stage_id not in unlocked_stages and user_test_results["where_to_start_test"]:
+                # If there's a test result, this stage should be unlocked regardless of pass/fail
+                if stage_id not in unlocked_stages:
                     db.unlock_stage(user_id, "preparation_materials")
                     unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
                 
@@ -81,10 +78,7 @@ async def send_main_menu(update, context, message=None, edit=False):
                     # Stage unlocked - show as green circle (not checkmark)
                     stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
             
-            if stage_id in unlocked_stages:
-                keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
-            else:
-                keyboard.append([InlineKeyboardButton(stage_name, callback_data="locked")])
+            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
             continue  # Skip the rest of the loop for this item
         
         # Check if there's a test result for this stage if applicable
@@ -97,23 +91,16 @@ async def send_main_menu(update, context, message=None, edit=False):
             # Test was taken - show ✅ for passed or ❌ for failed
             if user_test_results[test_name]:
                 # Test passed
-                if stage_id in unlocked_stages:
-                    stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
-                    keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
-                else:
-                    stage_name = stage_name.replace("🔴", "✅")  # Still show checkmark but keep locked
-                    keyboard.append([InlineKeyboardButton(stage_name, callback_data="locked")])
+                stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
             else:
                 # Test failed
                 stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
-                keyboard.append([InlineKeyboardButton(stage_name, callback_data="locked")])
+            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
         else:
             # No test result - show regular lock/unlock status
             if stage_id in unlocked_stages:
                 stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
-                keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
-            else:
-                keyboard.append([InlineKeyboardButton(stage_name, callback_data="locked")])
+            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
     
     # Add contact developers button
     keyboard.append([InlineKeyboardButton("📞 Связаться с разработчиками", callback_data="contact_developers")])
@@ -222,19 +209,18 @@ async def handle_test_completion(update, context):
     # Save test result - сохраняем фактический результат
     db.update_test_result(user_id, test_name, passed)
     
-    # Определяем следующий этап для разблокировки (только если тест пройден)
+    # Определяем следующий этап для разблокировки (независимо от результата теста)
     next_stage = None
-    if passed:
-        if test_name == "primary_test":
-            next_stage = "where_to_start"
-        elif test_name == "where_to_start_test":
-            next_stage = "preparation_materials"
-        elif test_name == "preparation_test":
-            next_stage = "take_test"
-        
-        # Разблокируем следующий этап только если тест пройден
-        if next_stage:
-            db.unlock_stage(user_id, next_stage)
+    if test_name == "primary_test":
+        next_stage = "where_to_start"
+    elif test_name == "where_to_start_test":
+        next_stage = "preparation_materials"
+    elif test_name == "preparation_test":
+        next_stage = "take_test"
+    
+    # Разблокируем следующий этап даже если тест не пройден
+    if next_stage:
+        db.unlock_stage(user_id, next_stage)
     
     # Формируем сообщение о результатах
     if passed:
@@ -247,9 +233,9 @@ async def handle_test_completion(update, context):
     else:
         # Текст для неудачного прохождения теста
         result_message = (
-            f"❌ К сожалению, вы не прошли тест.\n\n"
+            f"❌ Результат теста: не пройден.\n\n"
             f"Правильных ответов: {correct_answers} из {total_questions}\n\n"
-            f"Пожалуйста, внимательно изучите материалы и попробуйте снова позже."
+            f"Однако, следующий этап все равно разблокирован. Вы можете продолжить, но рекомендуем еще раз просмотреть материалы."
         )
     
     # Отправляем новое сообщение с результатами теста вместо редактирования
