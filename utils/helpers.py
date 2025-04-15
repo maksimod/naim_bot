@@ -17,7 +17,18 @@ def load_test_questions(filename):
     """Load test questions from a JSON file in the materials folder"""
     try:
         with open(Path('materials') / filename, 'r', encoding='utf-8') as file:
-            return json.load(file)
+            data = json.load(file)
+            # Convert from JSON format to expected format in code
+            if "questions" in data:
+                questions = []
+                for q in data["questions"]:
+                    questions.append({
+                        "question": q["question"],
+                        "answers": q["options"],
+                        "correct_index": q["correct_answer"]
+                    })
+                return questions
+            return data
     except Exception as e:
         logger.error(f"Error loading test questions from {filename}: {e}")
         return None

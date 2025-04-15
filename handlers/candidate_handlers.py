@@ -142,7 +142,13 @@ async def send_test_question(update, context, edit_message=False):
     test_data = context.user_data.get("test_data", [])
     current_question = context.user_data.get("current_question", 0)
     
-    if not test_data or current_question >= len(test_data):
+    # Проверяем наличие тестовых данных
+    if not test_data:
+        await update.effective_chat.send_message("Ошибка: тестовые данные отсутствуют. Пожалуйста, попробуйте позже.")
+        return await send_main_menu(update, context)
+    
+    # Проверяем, не вышли ли мы за пределы доступных вопросов
+    if current_question >= len(test_data):
         return await handle_test_completion(update, context)
     
     question = test_data[current_question]

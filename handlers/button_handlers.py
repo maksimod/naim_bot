@@ -172,15 +172,51 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif query.data == "where_to_start" and "where_to_start" in unlocked_stages:
         content = load_text_content("where_to_start.txt")
-        await query.message.reply_text(content)
         
-        # Offer to take the test
-        keyboard = [[InlineKeyboardButton("Пройти тест", callback_data="where_to_start_test")]]
+        # Вместо создания нового сообщения, редактируем текущее
+        keyboard = [
+            [InlineKeyboardButton("Пройти тест", callback_data="where_to_start_test")],
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text(
-            "Чтобы разблокировать следующий этап, пройдите тест.",
-            reply_markup=reply_markup
+        
+        try:
+            await query.edit_message_text(
+                content + "\n\nЧтобы разблокировать следующий этап, пройдите тест.",
+                reply_markup=reply_markup
+            )
+            # Сохраняем ID сообщения для возможного последующего редактирования
+            context.user_data["content_message_id"] = query.message.message_id
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            # Если редактирование не удалось, возвращаемся в главное меню
+            return await send_main_menu(update, context, edit=True)
+            
+        return CandidateStates.WHERE_TO_START
+    
+    elif query.data == "where_to_start_test":
+        # Show warning before starting the test
+        warning_message = (
+            "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
+            "Перед началом теста, пожалуйста, внимательно ознакомьтесь с материалами. " +
+            "<b>Если вы не пройдете успешно хотя бы половину всех тестов, вы будете заблокированы в системе.</b>\n\n" +
+            "Вы уверены, что готовы начать тест?"
         )
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, я готов", callback_data="confirm_where_to_start_test")],
+            [InlineKeyboardButton("❌ Нет, вернуться к материалам", callback_data="where_to_start")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Редактировать текущее сообщение вместо создания нового
+        try:
+            await query.edit_message_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            # Только в случае ошибки отправляем новое сообщение
+            await query.message.reply_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+            
         return CandidateStates.WHERE_TO_START
     
     # Contact developers - FIX: emoji display issue
