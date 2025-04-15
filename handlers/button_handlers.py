@@ -507,6 +507,12 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif (query.data == "interview_prep" and "interview_prep" in unlocked_stages) or admin_mode and query.data == "interview_prep":
         content = load_text_content("interview_prep.txt")
         
+        # Разбиваем длинный текст на части
+        max_length = 3000  # Безопасная длина для сообщений Telegram
+        
+        # Сначала отправляем первую часть текста с кнопками
+        first_part = content[:max_length] if len(content) > max_length else content
+        
         keyboard = [
             [InlineKeyboardButton("Пройти тест", callback_data="interview_prep_test")],
             [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
@@ -514,19 +520,30 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         try:
+            # Отправляем первую часть с кнопками
             await query.edit_message_text(
-                content,
+                first_part,
                 reply_markup=reply_markup
             )
             context.user_data["content_message_id"] = query.message.message_id
+            
+            # Если текст был разбит, отправляем оставшиеся части
+            if len(content) > max_length:
+                remaining_content = content[max_length:]
+                await update.effective_chat.send_message(remaining_content)
         except Exception as e:
             logger.error(f"Error editing message: {e}")
             # If editing fails, send as a new message
             message = await update.effective_chat.send_message(
-                text=content,
+                text=first_part,
                 reply_markup=reply_markup
             )
             context.user_data["content_message_id"] = message.message_id
+            
+            # Если текст был разбит, отправляем оставшиеся части
+            if len(content) > max_length:
+                remaining_content = content[max_length:]
+                await update.effective_chat.send_message(remaining_content)
             
         return CandidateStates.INTERVIEW_PREP
     
@@ -585,9 +602,15 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         user_test_results = db.get_user_test_results(user_id)
         
-        # Check how many tests were passed
-        total_tests = 0
-        passed_tests = 0
+        # В режиме администратора используем результаты из context.user_data
+        if admin_mode:
+            admin_test_results = context.user_data.get("admin_test_results", {})
+            # Объединяем с результатами из БД, но admin_test_results имеют приоритет
+            display_test_results = {**user_test_results, **admin_test_results}
+        else:
+            display_test_results = user_test_results
+        
+        # Определяем список всех тестов
         test_names = {
             "primary_test": "Первичный файл",
             "where_to_start_test": "С чего начать",
@@ -595,16 +618,18 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "interview_prep_test": "Подготовка к собеседованию"
         }
         
+        # Всего тестов и количество пройденных
+        total_tests = len(test_names)  # Всегда 4 теста
+        passed_tests = 0
+        
         test_status = []
         for test_id, display_name in test_names.items():
-            if test_id in user_test_results:
-                total_tests += 1
-                if user_test_results[test_id]:
-                    passed_tests += 1
-                    status = "✅ Пройден"
-                else:
-                    status = "❌ Не пройден"
-                test_status.append(f"{display_name}: {status}")
+            if test_id in display_test_results and display_test_results[test_id]:
+                passed_tests += 1
+                status = "✅ Пройден"
+            else:
+                status = "❌ Не пройден"
+            test_status.append(f"{display_name}: {status}")
         
         # Create a message with test results
         test_results_message = "Результаты всех тестов:\n\n"
