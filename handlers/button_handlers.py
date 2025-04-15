@@ -1,9 +1,10 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
 import database as db
 from config import CandidateStates
 from utils.helpers import load_text_content, load_test_questions
+from utils.chatgpt_helpers import verify_test_completion
 from handlers.candidate_handlers import send_main_menu, send_test_question
 
 logger = logging.getLogger(__name__)
@@ -409,6 +410,220 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error updating survey message: {e}")
             await update.effective_chat.send_message(
                 response_text + "\n\nСледующий этап разблокирован.",
+                reply_markup=reply_markup
+            )
+        
+        return CandidateStates.MAIN_MENU
+    
+    # Handler for take_test button
+    elif query.data == "take_test" and "take_test" in unlocked_stages:
+        try:
+            # Load the task description
+            task_content = load_text_content("past_the_test.txt")
+            
+            # Show the task to the user
+            keyboard = [
+                [InlineKeyboardButton("Отправить решение", callback_data="submit_solution")],
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            try:
+                await query.edit_message_text(
+                    task_content,
+                    reply_markup=reply_markup
+                )
+                context.user_data["content_message_id"] = query.message.message_id
+            except Exception as e:
+                logger.error(f"Error editing message: {e}")
+                # If editing fails, send as a new message
+                message = await update.effective_chat.send_message(
+                    text=task_content,
+                    reply_markup=reply_markup
+                )
+                context.user_data["content_message_id"] = message.message_id
+                
+            # Set up the context for solution submission
+            context.user_data["awaiting_solution"] = True
+            
+        except Exception as e:
+            logger.error(f"Error handling take_test button: {e}")
+            await update.effective_chat.send_message(
+                "Произошла ошибка при загрузке задания. Пожалуйста, попробуйте позже."
+            )
+            return await send_main_menu(update, context)
+            
+        return CandidateStates.TAKE_TEST
+    
+    # Handler for submission of the solution
+    elif query.data == "submit_solution":
+        if "awaiting_solution" not in context.user_data or not context.user_data["awaiting_solution"]:
+            # If we're not awaiting a solution, return to main menu
+            return await send_main_menu(update, context)
+        
+        # Text to send
+        message_text = ("Пожалуйста, отправьте ваше решение задачи в следующем сообщении.\n\n"
+                        "Вставьте полный текст вашего диалога с ИИ, включая задание и решение.")
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Отмена и возврат в меню", callback_data="back_to_menu")]
+        ])
+        
+        try:
+            # Try to edit the current message
+            await query.edit_message_text(
+                message_text,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            # If editing fails, send a new message
+            logger.error(f"Error editing message: {e}")
+            await query.message.reply_text(
+                message_text,
+                reply_markup=reply_markup
+            )
+        
+        # Set the state to indicate we're waiting for a solution message
+        context.user_data["awaiting_solution_message"] = True
+        return CandidateStates.WAITING_FOR_SOLUTION
+    
+    # Handler for interview_prep
+    elif query.data == "interview_prep" and "interview_prep" in unlocked_stages:
+        content = load_text_content("interview_prep.txt")
+        
+        keyboard = [
+            [InlineKeyboardButton("Пройти тест", callback_data="interview_prep_test")],
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                content,
+                reply_markup=reply_markup
+            )
+            context.user_data["content_message_id"] = query.message.message_id
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            # If editing fails, send as a new message
+            message = await update.effective_chat.send_message(
+                text=content,
+                reply_markup=reply_markup
+            )
+            context.user_data["content_message_id"] = message.message_id
+            
+        return CandidateStates.INTERVIEW_PREP
+    
+    # Handler for interview_prep_test
+    elif query.data == "interview_prep_test":
+        # Show warning before starting the test
+        warning_message = (
+            "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
+            "Перед началом теста, пожалуйста, внимательно ознакомьтесь с материалами. " +
+            "<b>Если вы не пройдете успешно хотя бы половину всех тестов, вы будете заблокированы в системе.</b>\n\n" +
+            "Вы уверены, что готовы начать тест?"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, я готов", callback_data="confirm_interview_prep_test")],
+            [InlineKeyboardButton("❌ Нет, вернуться к материалам", callback_data="interview_prep")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            # If editing fails, send as a new message
+            await query.message.reply_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+            
+        return CandidateStates.INTERVIEW_PREP
+    
+    # Handler for confirm_interview_prep_test
+    elif query.data == "confirm_interview_prep_test":
+        # Load test questions
+        test_data = load_test_questions("interview_prep_test.json")
+        if not test_data:
+            await query.message.reply_text("Ошибка загрузки теста. Пожалуйста, попробуйте позже.")
+            return CandidateStates.MAIN_MENU
+        
+        # Store test data in context
+        context.user_data["current_test"] = "interview_prep_test"
+        context.user_data["test_data"] = test_data
+        context.user_data["current_question"] = 0
+        context.user_data["correct_answers"] = 0
+        
+        # Send the first question by editing the current message
+        try:
+            await send_test_question(update, context, edit_message=True)
+        except Exception as e:
+            logger.error(f"Error editing message for test: {e}")
+            # If editing fails, send as a new message
+            await send_test_question(update, context, edit_message=False)
+        
+        return CandidateStates.INTERVIEW_PREP_TEST
+    
+    # Handler for scheduled_interview button
+    elif query.data == "schedule_interview" and "schedule_interview" in unlocked_stages:
+        # Get the test results for the user
+        user_id = update.effective_user.id
+        user_test_results = db.get_user_test_results(user_id)
+        
+        # Check how many tests were passed
+        total_tests = 0
+        passed_tests = 0
+        test_names = {
+            "primary_test": "Первичный файл",
+            "where_to_start_test": "С чего начать",
+            "take_test_result": "Пройти испытание", 
+            "interview_prep_test": "Подготовка к собеседованию"
+        }
+        
+        test_status = []
+        for test_id, display_name in test_names.items():
+            if test_id in user_test_results:
+                total_tests += 1
+                if user_test_results[test_id]:
+                    passed_tests += 1
+                    status = "✅ Пройден"
+                else:
+                    status = "❌ Не пройден"
+                test_status.append(f"{display_name}: {status}")
+        
+        # Create a message with test results
+        test_results_message = "Результаты всех тестов:\n\n"
+        test_results_message += "\n".join(test_status)
+        test_results_message += f"\n\nВсего пройдено {passed_tests} из {total_tests} тестов."
+        
+        # Check if the user has passed at least 3 out of 4 tests
+        if passed_tests >= 2:  # More than 50% requirement
+            congratulations_message = (
+                "🎉 Поздравляем! Вы успешно прошли все необходимые этапы и готовы к собеседованию!\n\n"
+                "Наш HR-менеджер свяжется с вами в ближайшее время для назначения даты и времени собеседования.\n\n"
+                "Спасибо за интерес к нашей компании и удачи на собеседовании!\n\n"
+            )
+            message = test_results_message + "\n\n" + congratulations_message
+        else:
+            message = (
+                test_results_message + "\n\n"
+                "К сожалению, вы не прошли необходимое количество тестов для перехода к собеседованию.\n"
+                "Пожалуйста, пройдите оставшиеся тесты и попробуйте снова."
+            )
+        
+        # Send the message to the user
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                message,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            await update.effective_chat.send_message(
+                message,
                 reply_markup=reply_markup
             )
         

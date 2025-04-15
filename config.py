@@ -21,6 +21,7 @@ class CandidateStates:
     PREPARATION_MATERIALS = 'preparation_materials'
     CONTACT_DEVELOPERS = 'contact_developers'
     TAKE_TEST = 'take_test'
+    WAITING_FOR_SOLUTION = 'waiting_for_solution'
     INTERVIEW_PREP = 'interview_prep'
     SCHEDULE_INTERVIEW = 'schedule_interview'
 

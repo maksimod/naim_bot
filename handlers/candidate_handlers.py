@@ -5,6 +5,7 @@ from telegram.ext import ContextTypes
 import database as db
 from config import CandidateStates
 from utils.helpers import load_text_content, load_test_questions
+from utils.chatgpt_helpers import verify_test_completion
 
 logger = logging.getLogger(__name__)
 
@@ -302,3 +303,74 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error processing test answer: {e}")
         await query.message.reply_text("Ошибка при обработке ответа. Пожалуйста, попробуйте снова.")
         return await send_main_menu(update, context)
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle text messages."""
+    # Get current state
+    user_id = update.effective_user.id
+    message_text = update.message.text
+    
+    # Handle solution submission
+    if context.user_data.get("awaiting_solution_message", False):
+        # We are expecting a solution to the AI test
+        context.user_data["awaiting_solution_message"] = False  # Reset flag
+        
+        # Send a processing message
+        processing_msg = await update.effective_chat.send_message(
+            "⏳ Проверяем ваше решение. Это может занять некоторое время..."
+        )
+        
+        try:
+            # Verify the solution using ChatGPT
+            passed, feedback = await verify_test_completion(message_text)
+            
+            # Save test result in the database
+            db.update_test_result(user_id, "take_test_result", passed)
+            
+            # Unlock the next stage (interview_prep) regardless of result
+            db.unlock_stage(user_id, "interview_prep")
+            
+            # Create keyboard with button to return to menu
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Remove processing message
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=processing_msg.message_id
+            )
+            
+            # Send feedback
+            await update.effective_chat.send_message(
+                f"Проверка вашего решения завершена.\n\n{feedback}\n\n"
+                f"{'✅ Тест пройден!' if passed else '❌ Тест не пройден.'}\n\n"
+                f"Следующий этап 'Подготовка к собеседованию' теперь разблокирован.",
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            logger.error(f"Error verifying solution: {e}")
+            
+            # Remove processing message
+            try:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=processing_msg.message_id
+                )
+            except:
+                pass
+            
+            # Send error message
+            await update.effective_chat.send_message(
+                "Произошла ошибка при проверке вашего решения. Пожалуйста, попробуйте позже или обратитесь к администратору.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+        
+        return CandidateStates.MAIN_MENU
+    
+    # Default: return to main menu
+    return await send_main_menu(update, context)

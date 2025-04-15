@@ -5,10 +5,8 @@ from telegram.ext import (
     MessageHandler, filters, ConversationHandler
 )
 import database as db
-from config import CandidateStates, CANDIDATE_BOT_TOKEN
-from handlers.command_handlers import start, help_command, menu_command, unknown_command, unknown_message
-from handlers.button_handlers import button_click
-from handlers.candidate_handlers import handle_test_answer
+from config_fix import CandidateStates, CANDIDATE_BOT_TOKEN
+from handlers import command_handlers, button_handlers, candidate_handlers
 
 # Enable logging
 logging.basicConfig(
@@ -27,54 +25,58 @@ async def main():
     
     # Define conversation handler for the candidate bot
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+        entry_points=[CommandHandler('start', command_handlers.start)],
         states={
             CandidateStates.MAIN_MENU: [
-                CallbackQueryHandler(button_click),
-                CommandHandler('help', help_command),
-                CommandHandler('menu', menu_command),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(button_handlers.button_click),
+                CommandHandler('help', command_handlers.help_command),
+                CommandHandler('menu', command_handlers.menu_command),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
             CandidateStates.PRIMARY_FILE: [
-                CallbackQueryHandler(button_click),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
             CandidateStates.PRIMARY_TEST: [
-                CallbackQueryHandler(handle_test_answer),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(candidate_handlers.handle_test_answer),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
             CandidateStates.WHERE_TO_START: [
-                CallbackQueryHandler(button_click),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
             CandidateStates.WHERE_TO_START_TEST: [
-                CallbackQueryHandler(handle_test_answer),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(candidate_handlers.handle_test_answer),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
             CandidateStates.PREPARATION_MATERIALS: [
-                CallbackQueryHandler(button_click),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
             CandidateStates.TAKE_TEST: [
-                CallbackQueryHandler(button_click),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
+            ],
+            CandidateStates.WAITING_FOR_SOLUTION: [
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, candidate_handlers.handle_message)
             ],
             CandidateStates.INTERVIEW_PREP: [
-                CallbackQueryHandler(button_click),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
             CandidateStates.SCHEDULE_INTERVIEW: [
-                CallbackQueryHandler(button_click),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
             CandidateStates.CONTACT_DEVELOPERS: [
-                CallbackQueryHandler(button_click),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message)
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
         },
         fallbacks=[
-            CommandHandler('start', start),
-            MessageHandler(filters.COMMAND, unknown_command)
+            CommandHandler('start', command_handlers.start),
+            MessageHandler(filters.COMMAND, command_handlers.unknown_command)
         ]
     )
     
@@ -82,12 +84,12 @@ async def main():
     application.add_handler(conv_handler)
     
     # Add standalone command handlers
-    application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(CommandHandler('menu', menu_command))
+    application.add_handler(CommandHandler('help', command_handlers.help_command))
+    application.add_handler(CommandHandler('menu', command_handlers.menu_command))
     
     # Add handlers for unknown commands and messages (outside of conversation)
-    application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
-    application.add_handler(MessageHandler(filters.TEXT, unknown_message))
+    application.add_handler(MessageHandler(filters.COMMAND, command_handlers.unknown_command))
+    application.add_handler(MessageHandler(filters.TEXT, command_handlers.unknown_message))
     
     # Start the Bot
     await application.initialize()
