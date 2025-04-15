@@ -110,19 +110,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CandidateStates.MAIN_MENU
     
     elif query.data == "primary_test":
-        # Delete the content message if it exists
-        try:
-            if "content_message_id" in context.user_data:
-                # Delete the content message
-                await context.bot.delete_message(
-                    chat_id=update.effective_chat.id,
-                    message_id=context.user_data["content_message_id"]
-                )
-                # Remove the content message ID from user data
-                del context.user_data["content_message_id"]
-        except Exception as e:
-            logger.error(f"Error deleting content message: {e}")
-        
+        # Вместо удаления сообщения редактируем его
         # Show warning before starting the test
         warning_message = (
             "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
@@ -146,7 +134,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
         
         return CandidateStates.PRIMARY_FILE
-        
+    
     elif query.data == "confirm_primary_test":
         # Load test questions
         test_data = load_test_questions("primary_test.json")
@@ -276,20 +264,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Back to menu from any section
     elif query.data == "back_to_menu":
-        # Try to delete the content message if it exists
-        try:
-            if "content_message_id" in context.user_data:
-                # Delete the content message
-                await context.bot.delete_message(
-                    chat_id=update.effective_chat.id,
-                    message_id=context.user_data["content_message_id"]
-                )
-                # Remove the content message ID from user data
-                del context.user_data["content_message_id"]
-        except Exception as e:
-            logger.error(f"Error deleting content message: {e}")
-        
-        # Return to main menu
+        # Вместо удаления сообщения, просто редактируем его
         return await send_main_menu(update, context, edit=True)
     
     # Default - return to main menu
