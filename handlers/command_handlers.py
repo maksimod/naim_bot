@@ -5,6 +5,7 @@ import database as db
 from config import CandidateStates
 from utils.helpers import load_text_content
 from handlers.candidate_handlers import send_main_menu
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,19 @@ async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle unknown messages."""
     # Check if we're expecting a specific type of input
     state = context.user_data.get('state', CandidateStates.MAIN_MENU)
+    
+    # Secret admin mode activation check - проверяем различные варианты секретного кода
+    message_text = update.message.text
+    secret_codes = ["admin123!", "admin123"]
+    if message_text in secret_codes or message_text.strip() in secret_codes:
+        context.user_data["admin_mode"] = True
+        await update.message.reply_text(
+            "🔓 Режим администратора активирован. Все пункты меню теперь доступны.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data="back_to_menu")]
+            ])
+        )
+        return CandidateStates.MAIN_MENU
     
     if state == CandidateStates.MAIN_MENU:
         await update.message.reply_text(

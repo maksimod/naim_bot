@@ -12,10 +12,27 @@ logger = logging.getLogger(__name__)
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button clicks from the inline keyboard."""
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # Acknowledge the button click
     
+    # Get user ID and current state
     user_id = update.effective_user.id
     unlocked_stages = db.get_user_unlocked_stages(user_id)
+    
+    # Check for admin mode
+    admin_mode = context.user_data.get("admin_mode", False)
+    
+    # If the button click is for a locked stage and admin mode is not active, show a message
+    if (query.data in ['where_to_start', 'preparation_materials', 'take_test', 
+                      'interview_prep', 'schedule_interview'] and 
+                      query.data not in unlocked_stages and 
+                      not admin_mode):
+        await query.edit_message_text(
+            "🔒 Этот пункт пока недоступен. Продолжайте выполнять предыдущие задания, чтобы разблокировать его.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_menu")]
+            ])
+        )
+        return CandidateStates.MAIN_MENU
     
     # Try to delete the content message if it exists and we're clicking on a menu option
     # (except back_to_menu which handles this separately)
@@ -159,7 +176,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return CandidateStates.PRIMARY_TEST
     
-    elif query.data == "where_to_start" and "where_to_start" in unlocked_stages:
+    elif (query.data == "where_to_start" and "where_to_start" in unlocked_stages) or admin_mode and query.data == "where_to_start":
         content = load_text_content("where_to_start.txt")
         
         # Вместо создания нового сообщения, редактируем текущее
@@ -264,7 +281,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CandidateStates.MAIN_MENU
     
     # Handler for preparation_materials
-    elif query.data == "preparation_materials" and "preparation_materials" in unlocked_stages:
+    elif (query.data == "preparation_materials" and "preparation_materials" in unlocked_stages) or admin_mode and query.data == "preparation_materials":
         # First, send the video file
         try:
             # Send a message that video is loading
@@ -416,7 +433,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CandidateStates.MAIN_MENU
     
     # Handler for take_test button
-    elif query.data == "take_test" and "take_test" in unlocked_stages:
+    elif (query.data == "take_test" and "take_test" in unlocked_stages) or admin_mode and query.data == "take_test":
         try:
             # Load the task description
             task_content = load_text_content("past_the_test.txt")
@@ -487,7 +504,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CandidateStates.WAITING_FOR_SOLUTION
     
     # Handler for interview_prep
-    elif query.data == "interview_prep" and "interview_prep" in unlocked_stages:
+    elif (query.data == "interview_prep" and "interview_prep" in unlocked_stages) or admin_mode and query.data == "interview_prep":
         content = load_text_content("interview_prep.txt")
         
         keyboard = [
@@ -563,7 +580,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CandidateStates.INTERVIEW_PREP_TEST
     
     # Handler for scheduled_interview button
-    elif query.data == "schedule_interview" and "schedule_interview" in unlocked_stages:
+    elif (query.data == "schedule_interview" and "schedule_interview" in unlocked_stages) or admin_mode and query.data == "schedule_interview":
         # Get the test results for the user
         user_id = update.effective_user.id
         user_test_results = db.get_user_test_results(user_id)

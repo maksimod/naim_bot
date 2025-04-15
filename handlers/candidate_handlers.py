@@ -14,6 +14,9 @@ async def send_main_menu(update, context, message=None, edit=False):
     user_id = update.effective_user.id
     unlocked_stages = db.get_user_unlocked_stages(user_id)
     
+    # Check for admin mode
+    admin_mode = context.user_data.get("admin_mode", False)
+    
     # Get test results for emoji display
     user_test_results = db.get_user_test_results(user_id)
     
@@ -31,6 +34,12 @@ async def send_main_menu(update, context, message=None, edit=False):
     # Create keyboard with unlocked buttons and test status indicators
     keyboard = []
     for stage_id, stage_name in menu_options:
+        # In admin mode, all items are unlocked
+        if admin_mode:
+            stage_name = stage_name.replace("🔴", "🟢")  # All items are green in admin mode
+            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
+            continue
+            
         # Special handling for primary_file to show test result status
         if stage_id == "primary_file" and "primary_test" in user_test_results:
             if user_test_results["primary_test"]:
@@ -82,10 +91,10 @@ async def send_main_menu(update, context, message=None, edit=False):
             keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
             continue  # Skip the rest of the loop for this item
         
-        # Check if there's a test result for this stage if applicable
+        # Check if there's a test result for this stage
         test_name = None
         if stage_id == "take_test":
-            test_name = "preparation_test"
+            test_name = "take_test_result"
         
         # Check if there's a test result for this stage
         if test_name and test_name in user_test_results:
@@ -96,6 +105,7 @@ async def send_main_menu(update, context, message=None, edit=False):
             else:
                 # Test failed
                 stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
+                stage_name = stage_name.replace("🟢", "❌")  # Also replace green circle with X mark if needed
             keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
         else:
             # No test result - show regular lock/unlock status
@@ -309,6 +319,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Get current state
     user_id = update.effective_user.id
     message_text = update.message.text
+    
+    # Secret admin mode - использовать простой код admin123!
+    secret_codes = ["admin123!", "!admin123!", "admin123", "!admin123"]
+    if message_text in secret_codes or message_text.strip() in secret_codes:
+        context.user_data["admin_mode"] = True
+        await update.effective_chat.send_message(
+            "🔓 Режим администратора активирован. Все пункты меню теперь доступны.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data="back_to_menu")]
+            ])
+        )
+        return CandidateStates.MAIN_MENU
     
     # Handle solution submission
     if context.user_data.get("awaiting_solution_message", False):
