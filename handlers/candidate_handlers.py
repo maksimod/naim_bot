@@ -20,6 +20,14 @@ async def send_main_menu(update, context, message=None, edit=False):
     # Get test results for emoji display
     user_test_results = db.get_user_test_results(user_id)
     
+    # In admin mode, get test results from context instead of DB
+    if admin_mode:
+        admin_test_results = context.user_data.get("admin_test_results", {})
+        # Combine with regular results, but admin results take precedence
+        display_test_results = {**user_test_results, **admin_test_results}
+    else:
+        display_test_results = user_test_results
+    
     # Define all menu options with their locked/unlocked status and test results
     menu_options = [
         ("about_company", "🟢 Узнать о компании"),
@@ -33,85 +41,138 @@ async def send_main_menu(update, context, message=None, edit=False):
     
     # Create keyboard with unlocked buttons and test status indicators
     keyboard = []
-    for stage_id, stage_name in menu_options:
-        # In admin mode, all items are unlocked
-        if admin_mode:
-            stage_name = stage_name.replace("🔴", "🟢")  # All items are green in admin mode
-            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
-            continue
+    
+    # In admin mode, all items are unlocked and use admin_test_results
+    if admin_mode:
+        # Get admin test results
+        admin_test_results = context.user_data.get("admin_test_results", {})
+        
+        for stage_id, stage_name in menu_options:
+            # Make stage green (unlocked)
+            stage_name = stage_name.replace("🔴", "🟢")
             
-        # Special handling for primary_file to show test result status
-        if stage_id == "primary_file" and "primary_test" in user_test_results:
-            if user_test_results["primary_test"]:
-                # Test passed
-                stage_name = stage_name.replace("🟢", "✅")  # Replace green circle with checkmark
-            else:
-                # Test failed
-                stage_name = stage_name.replace("🟢", "❌")  # Replace green circle with X mark
-            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
-            continue  # Skip the rest of the loop for this item
+            # Check specific test results and show pass/fail
+            if stage_id == "primary_file" and "primary_test" in admin_test_results:
+                # Show ✅ or ❌ based on test result
+                if admin_test_results["primary_test"]:
+                    stage_name = stage_name.replace("🟢", "✅")
+                else:
+                    stage_name = stage_name.replace("🟢", "❌")
             
-        # Special handling for where_to_start - unlock after primary test regardless of result
-        if stage_id == "where_to_start":
-            # Check if there's a test result for primary_test
-            if "primary_test" in user_test_results:
-                # If there's a test result, this stage should be unlocked regardless of pass/fail
-                if stage_id not in unlocked_stages:
-                    db.unlock_stage(user_id, "where_to_start")
-                    unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
-                
-                # Check if there's a test result for this stage
-                if "where_to_start_test" in user_test_results:
-                    if user_test_results["where_to_start_test"]:
-                        # Test passed
-                        stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
-                    else:
-                        # Test failed
-                        stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
-                elif stage_id in unlocked_stages:
-                    # No test result - show as unlocked
-                    stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
-                
+            elif stage_id == "where_to_start" and "where_to_start_test" in admin_test_results:
+                # Show ✅ or ❌ based on test result
+                if admin_test_results["where_to_start_test"]:
+                    stage_name = stage_name.replace("🟢", "✅")
+                else:
+                    stage_name = stage_name.replace("🟢", "❌")
+            
+            elif stage_id == "take_test" and "take_test_result" in admin_test_results:
+                # Show ✅ or ❌ based on test result
+                if admin_test_results["take_test_result"]:
+                    stage_name = stage_name.replace("🟢", "✅")
+                else:
+                    stage_name = stage_name.replace("🟢", "❌")
+            
+            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
+        
+        # Add contact developers button
+        keyboard.append([InlineKeyboardButton("📞 Связаться с разработчиками", callback_data="contact_developers")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # If a custom message is provided, use it, otherwise use the default menu header
+        if not message:
+            message = "Главное меню (Режим администратора):"
+        
+        # Try to edit the existing message if needed
+        if edit and hasattr(update, 'callback_query') and update.callback_query:
+            try:
+                # Try to edit the current message
+                await update.callback_query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup
+                )
+                return CandidateStates.MAIN_MENU
+            except Exception as e:
+                logger.error(f"Error editing message via callback query: {e}")
+                # Fall through to other methods if this fails
+        
+        # Send a new message if editing is not possible or not requested
+        menu_message = await update.effective_message.reply_text(message, reply_markup=reply_markup)
+        context.user_data["main_menu_message_id"] = menu_message.message_id
+        return CandidateStates.MAIN_MENU
+    
+    else:
+        for stage_id, stage_name in menu_options:
+            # Special handling for primary_file to show test result status
+            if stage_id == "primary_file" and "primary_test" in display_test_results:
+                if display_test_results["primary_test"]:
+                    # Test passed
+                    stage_name = stage_name.replace("🟢", "✅")  # Replace green circle with checkmark
+                else:
+                    # Test failed
+                    stage_name = stage_name.replace("🟢", "❌")  # Replace green circle with X mark
                 keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
                 continue  # Skip the rest of the loop for this item
-        
-        # Special handling for preparation_materials - unlock after where_to_start_test regardless of result
-        if stage_id == "preparation_materials":
-            # Check if there's a test result for where_to_start_test
-            if "where_to_start_test" in user_test_results:
-                # If there's a test result, this stage should be unlocked regardless of pass/fail
-                if stage_id not in unlocked_stages:
-                    db.unlock_stage(user_id, "preparation_materials")
-                    unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
                 
-                if stage_id in unlocked_stages:
-                    # Stage unlocked - show as green circle (not checkmark)
-                    stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
+            # Special handling for where_to_start - unlock after primary test regardless of result
+            if stage_id == "where_to_start":
+                # Check if there's a test result for primary_test
+                if "primary_test" in display_test_results:
+                    # If there's a test result, this stage should be unlocked regardless of pass/fail
+                    if stage_id not in unlocked_stages:
+                        db.unlock_stage(user_id, "where_to_start")
+                        unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
+                    
+                    # Check if there's a test result for this stage
+                    if "where_to_start_test" in display_test_results:
+                        if display_test_results["where_to_start_test"]:
+                            # Test passed
+                            stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
+                        else:
+                            # Test failed
+                            stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
+                    elif stage_id in unlocked_stages:
+                        # No test result - show as unlocked
+                        stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
+                    
+                    keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
+                    continue  # Skip the rest of the loop for this item
             
-            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
-            continue  # Skip the rest of the loop for this item
-        
-        # Check if there's a test result for this stage
-        test_name = None
-        if stage_id == "take_test":
-            test_name = "take_test_result"
-        
-        # Check if there's a test result for this stage
-        if test_name and test_name in user_test_results:
-            # Test was taken - show ✅ for passed or ❌ for failed
-            if user_test_results[test_name]:
-                # Test passed
-                stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
+            # Special handling for preparation_materials - unlock after where_to_start_test regardless of result
+            if stage_id == "preparation_materials":
+                # Check if there's a test result for where_to_start_test
+                if "where_to_start_test" in display_test_results:
+                    # If there's a test result, this stage should be unlocked regardless of pass/fail
+                    if stage_id not in unlocked_stages:
+                        db.unlock_stage(user_id, "preparation_materials")
+                        unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
+                    
+                    if stage_id in unlocked_stages:
+                        # Stage unlocked - show as green circle (not checkmark)
+                        stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
+            
+            # Check if there's a test result for this stage
+            test_name = None
+            if stage_id == "take_test":
+                test_name = "take_test_result"
+            
+            # Check if there's a test result for this stage
+            if test_name and test_name in display_test_results:
+                # Test was taken - show ✅ for passed or ❌ for failed
+                if display_test_results[test_name]:
+                    # Test passed
+                    stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
+                else:
+                    # Test failed
+                    stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
+                    stage_name = stage_name.replace("🟢", "❌")  # Also replace green circle with X mark if needed
+                keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
             else:
-                # Test failed
-                stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
-                stage_name = stage_name.replace("🟢", "❌")  # Also replace green circle with X mark if needed
-            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
-        else:
-            # No test result - show regular lock/unlock status
-            if stage_id in unlocked_stages:
-                stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
-            keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
+                # No test result - show regular lock/unlock status
+                if stage_id in unlocked_stages:
+                    stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
+                keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
     
     # Add contact developers button
     keyboard.append([InlineKeyboardButton("📞 Связаться с разработчиками", callback_data="contact_developers")])
@@ -208,44 +269,57 @@ async def handle_test_completion(update, context):
     test_data = context.user_data.get("test_data", [])
     user_id = update.effective_user.id
     
+    # Check for admin mode
+    admin_mode = context.user_data.get("admin_mode", False)
+    
     if not test_data:
-        await update.effective_chat.send_message("Ошибка при обработке теста. Пожалуйста, попробуйте позже.")
         return await send_main_menu(update, context)
     
-    # Calculate the passing score (50% or more)
-    total_questions = len(test_data)
-    passing_score = total_questions // 2
-    passed = correct_answers > passing_score
+    # Calculate score as a percentage
+    score = (correct_answers / len(test_data)) * 100
     
-    # Save test result - сохраняем фактический результат
-    db.update_test_result(user_id, test_name, passed)
+    # Determine if user passed (need 70% or higher)
+    passed = score >= 70
     
-    # Определяем следующий этап для разблокировки (независимо от результата теста)
+    # In regular mode, save result to database
+    # In admin mode, save to context.user_data instead
+    if admin_mode:
+        if "admin_test_results" not in context.user_data:
+            context.user_data["admin_test_results"] = {}
+        context.user_data["admin_test_results"][test_name] = passed
+        logger.info(f"Admin mode: Test {test_name} completed with score {score:.1f}%, result: {'PASS' if passed else 'FAIL'}")
+    else:
+        # Save test result to database
+        db.update_test_result(user_id, test_name, passed)
+        logger.info(f"User {user_id} completed test {test_name} with score {score:.1f}%, result: {'PASS' if passed else 'FAIL'}")
+    
+    # Determine which stages should be unlocked based on the test
+    # Unlock the next stage regardless of test result
     next_stage = None
     if test_name == "primary_test":
         next_stage = "where_to_start"
     elif test_name == "where_to_start_test":
         next_stage = "preparation_materials"
-    elif test_name == "preparation_test":
-        next_stage = "take_test"
+    elif test_name == "take_test_result":
+        next_stage = "interview_prep"
     
-    # Разблокируем следующий этап даже если тест не пройден
-    if next_stage:
+    # Unlock the next stage in the regular mode only
+    if next_stage and not admin_mode:
         db.unlock_stage(user_id, next_stage)
     
-    # Формируем сообщение о результатах
+    # Show results to the user
     if passed:
         # Текст для успешного прохождения теста
         result_message = (
             f"🎉 Поздравляем! Вы успешно прошли тест!\n\n"
-            f"Правильных ответов: {correct_answers} из {total_questions}\n\n"
+            f"Правильных ответов: {correct_answers} из {len(test_data)}\n\n"
             f"Следующий этап разблокирован. Продолжайте свое путешествие по нашей программе найма!"
         )
     else:
         # Текст для неудачного прохождения теста
         result_message = (
             f"❌ Результат теста: не пройден.\n\n"
-            f"Правильных ответов: {correct_answers} из {total_questions}\n\n"
+            f"Правильных ответов: {correct_answers} из {len(test_data)}\n\n"
             f"Однако, следующий этап все равно разблокирован. Вы можете продолжить, но рекомендуем еще раз просмотреть материалы."
         )
     
@@ -279,36 +353,51 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     
+    # Check for admin mode
+    admin_mode = context.user_data.get("admin_mode", False)
+    
+    # Get test data from context
     test_data = context.user_data.get("test_data", [])
     current_question = context.user_data.get("current_question", 0)
+    test_name = context.user_data.get("current_test")
+    user_id = update.effective_user.id
     
     if not test_data or current_question >= len(test_data):
         return await send_main_menu(update, context)
     
-    # Parse the answer index from callback data
     try:
-        answer_index = int(query.data.split('_')[1])
-        question = test_data[current_question]
-        is_correct = answer_index == question['correct_index']
+        # Parse the answer index from callback data
+        if query.data.startswith("answer_"):
+            answer_index = int(query.data.split('_')[1])
+            question = test_data[current_question]
+            is_correct = answer_index == question['correct_index']
+            
+            if is_correct:
+                # Increment correct answers count
+                context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
+                feedback_text = "✅ Правильно!"
+            else:
+                feedback_text = f"❌ Неправильно. Правильный ответ: {question['answers'][question['correct_index']]}"
+            
+            # Show feedback
+            await query.edit_message_text(
+                text=f"{query.message.text}\n\n{feedback_text}",
+                reply_markup=None
+            )
+            
+            # Move to next question after a brief pause
+            await asyncio.sleep(2)
+            context.user_data["current_question"] = current_question + 1
+            
+            # If this is the last question, complete the test
+            if context.user_data["current_question"] >= len(test_data):
+                return await handle_test_completion(update, context)
+            
+            # Otherwise, send next question
+            return await send_test_question(update, context, edit_message=True)
         
-        if is_correct:
-            # Increment correct answers count
-            context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
-            feedback_text = "✅ Правильно!"
-        else:
-            feedback_text = f"❌ Неправильно. Правильный ответ: {question['answers'][question['correct_index']]}"
+        return CandidateStates.PRIMARY_TEST
         
-        # Show feedback
-        await query.edit_message_text(
-            text=f"{query.message.text}\n\n{feedback_text}",
-            reply_markup=None
-        )
-        
-        # Move to next question after a brief pause
-        await asyncio.sleep(2)
-        context.user_data["current_question"] = current_question + 1
-        return await send_test_question(update, context)
-    
     except (ValueError, IndexError, KeyError) as e:
         logger.error(f"Error processing test answer: {e}")
         await query.message.reply_text("Ошибка при обработке ответа. Пожалуйста, попробуйте снова.")
@@ -319,6 +408,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Get current state
     user_id = update.effective_user.id
     message_text = update.message.text
+    
+    # Check for admin mode
+    admin_mode = context.user_data.get("admin_mode", False)
     
     # Secret admin mode - использовать простой код admin123!
     secret_codes = ["admin123!", "!admin123!", "admin123", "!admin123"]
@@ -346,11 +438,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Verify the solution using ChatGPT
             passed, feedback = await verify_test_completion(message_text)
             
-            # Save test result in the database
-            db.update_test_result(user_id, "take_test_result", passed)
-            
-            # Unlock the next stage (interview_prep) regardless of result
-            db.unlock_stage(user_id, "interview_prep")
+            # In admin mode, save to context.user_data instead of database
+            if admin_mode:
+                if "admin_test_results" not in context.user_data:
+                    context.user_data["admin_test_results"] = {}
+                context.user_data["admin_test_results"]["take_test_result"] = passed
+                logger.info(f"Admin mode: Solution verification result: {'PASS' if passed else 'FAIL'}")
+                
+                # Don't unlock the next stage in admin mode
+            else:
+                # Save test result in the database
+                db.update_test_result(user_id, "take_test_result", passed)
+                
+                # Unlock the next stage (interview_prep) regardless of result
+                db.unlock_stage(user_id, "interview_prep")
+                logger.info(f"User {user_id} submitted solution, result: {'PASS' if passed else 'FAIL'}")
             
             # Create keyboard with button to return to menu
             keyboard = [
@@ -365,10 +467,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             # Send feedback
+            next_stage_text = "" if admin_mode else "Следующий этап 'Подготовка к собеседованию' теперь разблокирован."
             await update.effective_chat.send_message(
                 f"Проверка вашего решения завершена.\n\n{feedback}\n\n"
                 f"{'✅ Тест пройден!' if passed else '❌ Тест не пройден.'}\n\n"
-                f"Следующий этап 'Подготовка к собеседованию' теперь разблокирован.",
+                f"{next_stage_text}",
                 reply_markup=reply_markup
             )
             
