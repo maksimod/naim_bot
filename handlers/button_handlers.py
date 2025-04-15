@@ -262,6 +262,158 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return CandidateStates.MAIN_MENU
     
+    # Handler for preparation_materials
+    elif query.data == "preparation_materials" and "preparation_materials" in unlocked_stages:
+        # First, send the video file
+        try:
+            # Send a message that video is loading
+            await query.edit_message_text(
+                "Загрузка видеоматериалов, пожалуйста подождите...",
+                reply_markup=None
+            )
+            
+            # Send the video as a separate message
+            video_path = "materials/materials_for_prepare.mp4"
+            with open(video_path, 'rb') as video:
+                video_message = await context.bot.send_video(
+                    chat_id=update.effective_chat.id,
+                    video=video,
+                    caption="Материалы для подготовки"
+                )
+            
+            # Now, send the survey question
+            survey_data = load_test_questions("materials_for_prepare_survey.json")
+            if not survey_data or not isinstance(survey_data, dict):
+                await update.effective_chat.send_message(
+                    "Ошибка: не удалось загрузить опрос. Пожалуйста, свяжитесь с администратором."
+                )
+                return await send_main_menu(update, context)
+            
+            # Create keyboard with survey options
+            keyboard = []
+            context.user_data["survey_selected_options"] = []
+            
+            for i, option in enumerate(survey_data["options"]):
+                # For multiple choice, we'll use a different callback format
+                keyboard.append([InlineKeyboardButton(
+                    f"☐ {option}", 
+                    callback_data=f"survey_option_{i}"
+                )])
+            
+            # Add submit button at the bottom
+            keyboard.append([InlineKeyboardButton("Отправить ответы", callback_data="submit_survey")])
+            keyboard.append([InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Store the survey options for reference
+            context.user_data["survey_options"] = survey_data["options"]
+            context.user_data["survey_multiple_choice"] = survey_data.get("multiple_choice", False)
+            
+            # Send as a new message
+            survey_message = await update.effective_chat.send_message(
+                text=f"{survey_data['question']}\n\nВыберите один или несколько вариантов:",
+                reply_markup=reply_markup
+            )
+            
+            # Store the survey message ID
+            context.user_data["survey_message_id"] = survey_message.message_id
+            
+        except FileNotFoundError:
+            logger.error(f"Video file not found: {video_path}")
+            await update.effective_chat.send_message(
+                "Извините, видеоматериалы временно недоступны. Пожалуйста, свяжитесь с администратором."
+            )
+            return await send_main_menu(update, context)
+        except Exception as e:
+            logger.error(f"Error sending preparation materials: {e}")
+            await update.effective_chat.send_message(
+                "Произошла ошибка при загрузке материалов. Пожалуйста, попробуйте позже."
+            )
+            return await send_main_menu(update, context)
+        
+        return CandidateStates.PREPARATION_MATERIALS
+    
+    # Handle survey option selection (multiple choice)
+    elif query.data.startswith("survey_option_"):
+        try:
+            option_index = int(query.data.split("_")[-1])
+            survey_options = context.user_data.get("survey_options", [])
+            selected_options = context.user_data.get("survey_selected_options", [])
+            
+            if option_index in selected_options:
+                # Deselect this option
+                selected_options.remove(option_index)
+            else:
+                # Select this option
+                selected_options.append(option_index)
+            
+            # Update user data
+            context.user_data["survey_selected_options"] = selected_options
+            
+            # Rebuild keyboard with updated selection status
+            keyboard = []
+            for i, option in enumerate(survey_options):
+                # Show checkmark for selected options, empty box for unselected
+                prefix = "☑" if i in selected_options else "☐"
+                keyboard.append([InlineKeyboardButton(
+                    f"{prefix} {option}", 
+                    callback_data=f"survey_option_{i}"
+                )])
+            
+            # Add submit button at the bottom
+            keyboard.append([InlineKeyboardButton("Отправить ответы", callback_data="submit_survey")])
+            keyboard.append([InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Update the message with the new keyboard
+            await query.edit_message_reply_markup(reply_markup)
+            
+        except Exception as e:
+            logger.error(f"Error handling survey option selection: {e}")
+        
+        return CandidateStates.PREPARATION_MATERIALS
+    
+    # Handle survey submission
+    elif query.data == "submit_survey":
+        selected_options = context.user_data.get("survey_selected_options", [])
+        survey_options = context.user_data.get("survey_options", [])
+        
+        # Construct a string with the selected options
+        if selected_options:
+            selected_text = "\n".join([f"- {survey_options[i]}" for i in selected_options])
+            response_text = f"Спасибо за ваши ответы!\n\nВыбранные варианты:\n{selected_text}"
+        else:
+            response_text = "Вы не выбрали ни одного варианта. Ответы не сохранены."
+        
+        # Save survey results to database if needed
+        # Here we would typically save the results to DB
+        user_id = update.effective_user.id
+        
+        # Unlock the next stage (take_test)
+        db.unlock_stage(user_id, "take_test")
+        
+        # Update the message with confirmation and return button
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                response_text + "\n\nСледующий этап разблокирован.",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error updating survey message: {e}")
+            await update.effective_chat.send_message(
+                response_text + "\n\nСледующий этап разблокирован.",
+                reply_markup=reply_markup
+            )
+        
+        return CandidateStates.MAIN_MENU
+    
     # Back to menu from any section
     elif query.data == "back_to_menu":
         # Вместо удаления сообщения, просто редактируем его
