@@ -219,6 +219,38 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         return CandidateStates.WHERE_TO_START
     
+    elif query.data == "confirm_where_to_start_test":
+        # Load test questions
+        test_data = load_test_questions("where_to_start_test.json")
+        if not test_data:
+            try:
+                await query.edit_message_text(
+                    "Ошибка загрузки теста. Пожалуйста, попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                    ])
+                )
+            except Exception as e:
+                logger.error(f"Error editing message: {e}")
+                await query.message.reply_text("Ошибка загрузки теста. Пожалуйста, попробуйте позже.")
+            return CandidateStates.MAIN_MENU
+        
+        # Store test data in context
+        context.user_data["current_test"] = "where_to_start_test"
+        context.user_data["test_data"] = test_data
+        context.user_data["current_question"] = 0
+        context.user_data["correct_answers"] = 0
+        
+        # Send the first question by editing the current message
+        try:
+            await send_test_question(update, context, edit_message=True)
+        except Exception as e:
+            logger.error(f"Error editing message for test: {e}")
+            # If editing fails, send as a new message
+            await send_test_question(update, context, edit_message=False)
+        
+        return CandidateStates.WHERE_TO_START_TEST
+    
     # Contact developers - FIX: emoji display issue
     elif query.data == "contact_developers":
         # Edit the message to include the return button

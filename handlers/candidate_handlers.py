@@ -200,8 +200,9 @@ async def handle_test_completion(update, context):
     passed = correct_answers > passing_score
     
     # Save test result
-    db.save_test_result(user_id, test_name, passed)
+    db.update_test_result(user_id, test_name, passed)
     
+    # Формируем результирующее сообщение
     if passed:
         # Determine next stage to unlock based on current test
         next_stage = None
@@ -216,18 +217,42 @@ async def handle_test_completion(update, context):
         if next_stage:
             db.unlock_stage(user_id, next_stage)
         
-        # Show congratulatory message
-        await update.effective_chat.send_message(
+        # Текст для успешного прохождения теста
+        result_message = (
             f"🎉 Поздравляем! Вы успешно прошли тест!\n\n"
             f"Правильных ответов: {correct_answers} из {total_questions}\n\n"
             f"Следующий этап разблокирован. Продолжайте свое путешествие по нашей программе найма!"
         )
     else:
-        # Show failure message
-        await update.effective_chat.send_message(
+        # Текст для неудачного прохождения теста
+        result_message = (
             f"❌ К сожалению, вы не прошли тест.\n\n"
             f"Правильных ответов: {correct_answers} из {total_questions}\n\n"
             f"Пожалуйста, внимательно изучите материалы и попробуйте снова позже."
+        )
+    
+    # Попытка редактировать существующее сообщение вместо отправки нового
+    keyboard = [
+        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if hasattr(update, 'callback_query') and update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(
+                text=result_message,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error editing message for test result: {e}")
+            await update.effective_chat.send_message(
+                text=result_message,
+                reply_markup=reply_markup
+            )
+    else:
+        await update.effective_chat.send_message(
+            text=result_message,
+            reply_markup=reply_markup
         )
     
     # Clear test data from context
@@ -240,9 +265,9 @@ async def handle_test_completion(update, context):
     if "correct_answers" in context.user_data:
         del context.user_data["correct_answers"]
     
-    # Return to main menu after a brief pause
-    await asyncio.sleep(2)
-    return await send_main_menu(update, context)
+    # Не возвращаемся сразу в главное меню, т.к. пользователь может 
+    # захотеть прочитать сообщение о результатах
+    return CandidateStates.MAIN_MENU
 
 async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle user's answer to a test question"""
