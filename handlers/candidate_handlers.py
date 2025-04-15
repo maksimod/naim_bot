@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
 import database as db
 from config import CandidateStates
@@ -69,6 +69,13 @@ async def send_main_menu(update, context, message=None, edit=False):
             elif stage_id == "take_test" and "take_test_result" in admin_test_results:
                 # Show ✅ or ❌ based on test result
                 if admin_test_results["take_test_result"]:
+                    stage_name = stage_name.replace("🟢", "✅")
+                else:
+                    stage_name = stage_name.replace("🟢", "❌")
+            
+            elif stage_id == "interview_prep" and "interview_prep_test" in admin_test_results:
+                # Show ✅ or ❌ based on test result
+                if admin_test_results["interview_prep_test"]:
                     stage_name = stage_name.replace("🟢", "✅")
                 else:
                     stage_name = stage_name.replace("🟢", "❌")
@@ -217,25 +224,20 @@ async def send_main_menu(update, context, message=None, edit=False):
     return CandidateStates.MAIN_MENU
 
 async def send_test_question(update, context, edit_message=False):
-    """Send a test question to the user with smart message updates"""
+    """Send a test question to the user"""
     test_data = context.user_data.get("test_data", [])
     current_question = context.user_data.get("current_question", 0)
     
-    # Проверяем наличие тестовых данных
-    if not test_data:
-        await update.effective_chat.send_message("Ошибка: тестовые данные отсутствуют. Пожалуйста, попробуйте позже.")
-        return await send_main_menu(update, context)
-    
-    # Проверяем, не вышли ли мы за пределы доступных вопросов
     if current_question >= len(test_data):
         return await handle_test_completion(update, context)
     
     question = test_data[current_question]
     question_text = f"Вопрос {current_question + 1} из {len(test_data)}:\n\n{question['question']}"
     
-    # Create answers as buttons
+    # Create answers as buttons, поддерживаем оба формата: answers и options
     keyboard = []
-    for i, answer in enumerate(question['answers']):
+    options = question.get('options', question.get('answers', []))
+    for i, answer in enumerate(options):
         keyboard.append([InlineKeyboardButton(f"{i+1}. {answer}", callback_data=f"answer_{i}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -370,14 +372,19 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if query.data.startswith("answer_"):
             answer_index = int(query.data.split('_')[1])
             question = test_data[current_question]
-            is_correct = answer_index == question['correct_index']
+            
+            # Support both correct_option and correct_index
+            correct_answer_index = question.get('correct_option', question.get('correct_index', 0))
+            is_correct = answer_index == correct_answer_index
             
             if is_correct:
                 # Increment correct answers count
                 context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
                 feedback_text = "✅ Правильно!"
             else:
-                feedback_text = f"❌ Неправильно. Правильный ответ: {question['answers'][question['correct_index']]}"
+                # Поддерживаем оба формата: options и answers
+                options = question.get('options', question.get('answers', []))
+                feedback_text = f"❌ Неправильно. Правильный ответ: {options[correct_answer_index]}"
             
             # Show feedback
             await query.edit_message_text(

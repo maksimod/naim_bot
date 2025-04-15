@@ -65,6 +65,10 @@ async def main():
                 CallbackQueryHandler(button_handlers.button_click),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
+            CandidateStates.INTERVIEW_PREP_TEST: [
+                CallbackQueryHandler(candidate_handlers.handle_test_answer),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
+            ],
             CandidateStates.SCHEDULE_INTERVIEW: [
                 CallbackQueryHandler(button_handlers.button_click),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)

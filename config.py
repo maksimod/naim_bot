@@ -23,6 +23,7 @@ class CandidateStates:
     TAKE_TEST = 'take_test'
     WAITING_FOR_SOLUTION = 'waiting_for_solution'
     INTERVIEW_PREP = 'interview_prep'
+    INTERVIEW_PREP_TEST = 'interview_prep_test'
     SCHEDULE_INTERVIEW = 'schedule_interview'
 
 class RecruiterStates:
