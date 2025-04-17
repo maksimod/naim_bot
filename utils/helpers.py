@@ -25,7 +25,7 @@ def load_test_questions(filename):
                     questions.append({
                         "question": q["question"],
                         "options": q.get("options", q.get("answers", [])),
-                        "correct_option": q.get("correct_option", q.get("correct_index", 0))
+                        "correct_option": q.get("correct_option", q.get("correct_index", q.get("correct_answer", 0)))
                     })
                 return questions
             elif isinstance(data, list):

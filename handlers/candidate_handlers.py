@@ -408,18 +408,27 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             answer_index = int(query.data.split('_')[1])
             question = test_data[current_question]
             
-            # Support both correct_option and correct_index
-            correct_answer_index = question.get('correct_option', question.get('correct_index', 0))
-            is_correct = answer_index == correct_answer_index
+            # Используем только correct_answer из файла теста
+            # Если correct_answer отсутствует, используем 0 как значение по умолчанию
+            correct_answer = question.get('correct_answer', question.get('correct_option', 0))
+            
+            # Отладочный вывод для диагностики
+            logger.info(f"Answer debug - Question: {question['question']}")
+            logger.info(f"Answer debug - Available fields: {list(question.keys())}")
+            logger.info(f"Answer debug - correct_answer value: {correct_answer}")
+            logger.info(f"Answer debug - user selected: {answer_index}")
+            
+            # Проверяем, совпадает ли выбранный ответ с правильным
+            is_correct = answer_index == correct_answer
             
             if is_correct:
                 # Increment correct answers count
                 context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
                 feedback_text = "✅ Правильно!"
             else:
-                # Поддерживаем оба формата: options и answers
-                options = question.get('options', question.get('answers', []))
-                feedback_text = f"❌ Неправильно. Правильный ответ: {options[correct_answer_index]}"
+                # Берем варианты ответов
+                options = question.get('options', [])
+                feedback_text = f"❌ Неправильно. Правильный ответ: {options[correct_answer]}"
             
             # Show feedback
             await query.edit_message_text(
