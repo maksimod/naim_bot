@@ -366,10 +366,43 @@ async def handle_test_completion(update, context):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.effective_chat.send_message(
-        text=result_message,
-        reply_markup=reply_markup
-    )
+    # Вместо отправки нового сообщения, редактируем последнее сообщение с вопросом
+    if hasattr(update, 'callback_query') and update.callback_query:
+        try:
+            # Редактируем последнее сообщение с вопросом
+            await update.callback_query.edit_message_text(
+                text=result_message,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error editing message for test results: {e}")
+            # Если редактирование не удалось, отправляем новое сообщение
+            await update.effective_chat.send_message(
+                text=result_message,
+                reply_markup=reply_markup
+            )
+    elif "test_message_id" in context.user_data:
+        # Есть ID сообщения с тестом, редактируем его
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=context.user_data["test_message_id"],
+                text=result_message,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error editing stored test message: {e}")
+            # Если редактирование не удалось, отправляем новое сообщение
+            await update.effective_chat.send_message(
+                text=result_message,
+                reply_markup=reply_markup
+            )
+    else:
+        # Нет возможности редактировать, отправляем новое сообщение
+        await update.effective_chat.send_message(
+            text=result_message,
+            reply_markup=reply_markup
+        )
     
     # Clear test data from context
     if "current_test" in context.user_data:
