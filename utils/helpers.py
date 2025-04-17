@@ -27,10 +27,15 @@ def load_test_questions(filename):
                         "options": q.get("options", q.get("answers", [])),
                         "correct_option": q.get("correct_option", q.get("correct_index", q.get("correct_answer", 0)))
                     })
-                return questions
+                # Сохраняем информацию о времени, если она есть
+                result = {
+                    "questions": questions,
+                    "time_limit": data.get("time_limit", None)  # Время в секундах
+                }
+                return result
             elif isinstance(data, list):
                 # Уже в правильном формате или близком к нему
-                return data
+                return {"questions": data, "time_limit": None}
             return data
     except Exception as e:
         logger.error(f"Error loading test questions from {filename}: {e}")
