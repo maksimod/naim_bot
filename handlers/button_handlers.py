@@ -6,6 +6,7 @@ from config import CandidateStates
 from utils.helpers import load_text_content, load_test_questions
 from utils.chatgpt_helpers import verify_test_completion
 from handlers.candidate_handlers import send_main_menu, send_test_question
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -259,27 +260,76 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Handler for logic_test menu option
     elif (query.data == "logic_test" and "logic_test" in unlocked_stages) or admin_mode and query.data == "logic_test":
-        content = load_text_content("logic_test_prepare.txt")
-        
-        # Редактируем текущее сообщение
-        keyboard = [
-            [InlineKeyboardButton("Пройти тест", callback_data="logic_test_start")],
-            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
         try:
-            await query.edit_message_text(
-                content + "\n\nЧтобы разблокировать следующий этап, пройдите тест на логику.",
-                reply_markup=reply_markup
+            # Сначала отправляем документ
+            docx_path = "materials/logic_test_prepare.docx"
+            with open(docx_path, 'rb') as doc:
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=doc,
+                    filename="logic_test_prepare.docx",
+                    caption="Материалы для подготовки к тесту на логику"
+                )
+                
+            # Добавляем паузу в 5 секунд, чтобы файл успел загрузиться
+            await asyncio.sleep(5)
+                
+            # Затем отправляем краткое описание КАК НОВОЕ СООБЩЕНИЕ
+            brief_content = (
+                "*Подготовка к тесту на логическое мышление*\n\n"
+                "Этот тест проверяет ваши навыки логического мышления. Он не требует специальных знаний и "
+                "опирается на логические принципы при работе с описанными ситуациями.\n\n"
+                "Основы логики, которые нужно знать, содержатся в файле выше.\n\n"
+                "В тесте вы встретите вымышленные термины и понятия - это сделано специально, чтобы проверить "
+                "чистые логические навыки без влияния предварительных знаний.\n\n"
+                "*Стратегия прохождения теста*:\n\n"
+                "1. Внимательно читайте условие задания\n"
+                "2. Переформулируйте условие в более простую логическую структуру\n"
+                "3. Проверяйте каждый ответ на соответствие условию\n"
+                "4. Помните, что некоторые ответы могут быть технически верными, но не следовать напрямую из посылок\n\n"
+                "Удачи с прохождением теста! Для успешного завершения вам нужно правильно ответить как минимум на 22 вопроса из 30.\n\n"
+                "Чтобы разблокировать следующий этап, пройдите тест на логику."
             )
-            context.user_data["content_message_id"] = query.message.message_id
+            
+            # Создаем кнопки
+            keyboard = [
+                [InlineKeyboardButton("Пройти тест", callback_data="logic_test_start")],
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Отправляем новое сообщение вместо редактирования старого
+            message = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=brief_content,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            
+            # Сохраняем ID нового сообщения
+            context.user_data["content_message_id"] = message.message_id
+            
+            # Удаляем старое сообщение с меню
+            try:
+                await query.delete_message()
+            except Exception as e:
+                logger.error(f"Error deleting old message: {e}")
+            
+        except FileNotFoundError:
+            logger.error(f"File not found: {docx_path}")
+            await query.edit_message_text(
+                "Ошибка: Материалы для подготовки к тесту не найдены. Пожалуйста, сообщите администратору.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+            return CandidateStates.MAIN_MENU
         except Exception as e:
-            logger.error(f"Error editing message: {e}")
+            logger.error(f"Error sending logic test materials: {e}")
             return await send_main_menu(update, context, edit=True)
             
         return CandidateStates.LOGIC_TEST
-        
+    
     # Handler for starting the logic test
     elif query.data == "logic_test_start":
         # Show warning before starting the test
