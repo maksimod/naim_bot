@@ -7,8 +7,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFi
 from telegram.ext import ContextTypes
 import database as db
 from config import CandidateStates
-from utils.helpers import load_text_content, load_test_questions, get_stopwords_data, generate_sentence_with_stopword
-from utils.chatgpt_helpers import verify_test_completion, verify_stopword_rephrasing
+from utils.helpers import load_text_content, load_test_questions, get_stopwords_data
+from utils.chatgpt_helpers import verify_test_completion, generate_ai_stopword_sentence, verify_stopword_rephrasing_ai
 
 logger = logging.getLogger(__name__)
 
@@ -828,9 +828,9 @@ async def update_timer(context: ContextTypes.DEFAULT_TYPE):
         job_data = context.job.data
         chat_id = job_data.get("chat_id")
         message_id = job_data.get("message_id")
-        questions = job_data.get("questions")
-        current_question = job_data.get("current_question")
-        end_time = job_data.get("end_time")
+        questions = job_data.get("questions", [])
+        current_question = job_data.get("current_question", 0)
+        end_time = job_data.get("end_time", 0)
         context_obj = job_data.get("context_obj")
         
         # Проверяем, не завершен ли тест
@@ -968,6 +968,9 @@ async def begin_stopwords_test(update, context):
     query = update.callback_query
     await query.answer()
     
+    # Отправляем сообщение о загрузке
+    await query.edit_message_text("⏳ Подготавливаем тест на знание стоп-слов...\n\nЭто может занять несколько секунд.")
+    
     # Получаем ранее подготовленные стоп-слова
     selected_stopwords = context.user_data.get("selected_stopwords", [])
     
@@ -1023,7 +1026,9 @@ async def send_stopword_question(update, context, edit_message=True):
     
     # Получаем текущий стоп-слово
     stopword = stopwords[current_question]
-    sentence = generate_sentence_with_stopword(stopword)
+    
+    # Используем AI для генерации предложения
+    sentence = await generate_ai_stopword_sentence(stopword)
     
     # Сохраняем информацию о чате для обновления таймера
     context.user_data["stopwords_test"]["chat_id"] = update.effective_chat.id
@@ -1184,7 +1189,8 @@ async def handle_stopword_answer(update, context):
     # Проверяем, правильно ли перефразировано предложение
     message = await update.effective_chat.send_message("⏳ Проверяю ваш ответ...")
     
-    passed, feedback = await verify_stopword_rephrasing(original_sentence, user_answer, stopword)
+    # Используем AI для проверки ответа
+    passed, feedback = await verify_stopword_rephrasing_ai(original_sentence, user_answer, stopword)
     
     # Обновляем счетчик правильных ответов
     if passed:
