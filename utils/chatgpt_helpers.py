@@ -3,6 +3,7 @@ import logging
 import aiohttp
 import json
 import re
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -199,63 +200,118 @@ def decode_unicode_string(text):
             logger.warning(f"Failed to decode Unicode: {e}")
             return text
 
-async def verify_test_completion(user_solution):
-    """
-    Verify if the user has correctly completed the test using ChatGPT.
-    
-    Args:
-        user_solution: The solution provided by the user
-    
-    Returns:
-        Tuple (passed, feedback) where passed is a boolean and feedback is a string
-    """
-    # Prepare system message
-    system_message = {
-        "role": "system",
-        "content": """
-        Ты - проверяющая система для оценки решений. Твоя задача - оценить, правильно ли выполнено задание и дать подробную обратную связь.
+async def verify_test_completion(solution_text):
+    """Verify completion of the test using ChatGPT"""
+    try:
+        # Use the API endpoint from .env
+        api_url = os.getenv("CHATGPT_API_KEY")
         
-        Исходное задание:
-        «Сгенерируйте короткий стихотворный текст (4-6 строк) на русском языке, который:
-        1. Содержит аллитерацию на звук "С" в каждой строке.
-        2. Включает упоминание двух противоположных стихий (например, огонь и вода).
-        3. Имеет скрытый акростих из первых букв строк, образующих слово "ИСКРА".»
+        # Prepare the prompt for GPT
+        prompt = f"""
+        Ты - специалист по оценке тестовых заданий. Необходимо оценить решение кандидата на вакансию.
         
-        Твоя задача:
-        1. Проверить, содержит ли решение пользователя диалог с нейросетью (ChatGPT, Claude, и т.д.)
-        2. Проверить, был ли сгенерирован стихотворный текст из 4-6 строк
-        3. Проверить, есть ли аллитерация на "С" в каждой строке
-        4. Проверить, упоминаются ли две противоположные стихии
-        5. Проверить, образуют ли первые буквы каждой строки слово "ИСКРА"
+        Задание: Разработать план действий для стартапа, планирующего запуск нового продукта на рынок.
         
-        Ответь в формате:
-        1. Сначала четко укажи: "ПРОВЕРКА: ТЕСТ [ПРОЙДЕН/НЕ ПРОЙДЕН]"
-        2. Затем перечисли все выполненные и невыполненные условия с пояснениями
-        3. Закончи общей обратной связью и рекомендациями
+        Ответ кандидата:
+        {solution_text}
         
-        Критерии оценки:
-        - Тест считается пройденным, если выполнены все 5 условий
-        - Если хотя бы одно условие не выполнено, тест считается не пройденным
+        Оцени решение по шкале от 1 до 10 по следующим критериям:
+        - Полнота охвата всех аспектов запуска продукта (маркетинг, продажи, поддержка)
+        - Реалистичность и практическая применимость плана
+        - Учет возможных рисков и препятствий
+        - Креативность и нестандартный подход
+        - Четкость формулировок и структурированность
+        
+        Дай общую оценку (прошел/не прошел тест) и детальную обратную связь. Решение считается успешным, если получено не менее 7 баллов по каждому критерию.
+        
+        Формат ответа:
+        {{
+          "passed": true/false,
+          "feedback": "подробная обратная связь"
+        }}
         """
-    }
-    
-    # User message with the solution
-    user_message = {
-        "role": "user",
-        "content": f"Вот мое решение задания:\n\n{user_solution}"
-    }
-    
-    # Call OpenAI API
-    messages = [system_message, user_message]
-    response = await call_openai_api(messages)
-    
-    if not response:
-        return False, "Не удалось проверить решение. Пожалуйста, попробуйте позже."
-    
-    # Determine if the test is passed based on the response
-    passed = "ТЕСТ ПРОЙДЕН" in response.upper()
-    
-    return passed, response
+        
+        # Make the API request
+        response = requests.post(api_url, json={"prompt": prompt, "format": "json"})
+        
+        # Process the response
+        if response.status_code != 200:
+            logger.error(f"Error calling ChatGPT API: {response.status_code}")
+            logger.error(f"Response text: {response.text}")
+            # Default response if API call fails
+            return False, "Не удалось проверить ваше решение. Пожалуйста, попробуйте позже."
+        
+        # Parse the JSON response
+        try:
+            result = response.json()
+            passed = result.get("passed", False)
+            feedback = result.get("feedback", "Нет обратной связи")
+            return passed, feedback
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse API response as JSON: {response.text}")
+            # Extract information from text response as fallback
+            text = response.text
+            passed = "прошел" in text.lower() or "успешн" in text.lower()
+            return passed, text
+        
+    except Exception as e:
+        logger.error(f"Error verifying test completion: {e}")
+        return False, "Произошла ошибка при проверке вашего решения."
+
+async def verify_stopword_rephrasing(original_sentence, rephrased_sentence, stopword):
+    """Проверяет, правильно ли перефразировано предложение без использования стоп-слова"""
+    try:
+        # Используем API из .env
+        api_url = os.getenv("CHATGPT_API_KEY")
+        
+        # Подготовка запроса для GPT
+        prompt = f"""
+        Ты - специалист по деловой коммуникации. Оцени, правильно ли перефразировано предложение.
+        
+        Исходное предложение: "{original_sentence}"
+        
+        Перефразированное предложение: "{rephrased_sentence}"
+        
+        Стоп-слово, которое нужно было исключить: "{stopword['word']}"
+        
+        Требования к успешному перефразированию:
+        1. Стоп-слово полностью отсутствует в новом предложении
+        2. Смысл сохранен
+        3. Предложение грамматически корректно
+        
+        Формат ответа:
+        {{
+          "passed": true/false,
+          "feedback": "краткая обратная связь"
+        }}
+        """
+        
+        # Делаем запрос к API
+        response = requests.post(api_url, json={"prompt": prompt, "format": "json"})
+        
+        # Обрабатываем ответ
+        if response.status_code != 200:
+            logger.error(f"Ошибка при вызове ChatGPT API: {response.status_code}")
+            logger.error(f"Текст ответа: {response.text}")
+            # Ответ по умолчанию, если вызов API не удался
+            return False, "Не удалось проверить ваш ответ. Пожалуйста, попробуйте еще раз."
+        
+        # Парсим JSON ответ
+        try:
+            result = response.json()
+            passed = result.get("passed", False)
+            feedback = result.get("feedback", "Нет обратной связи")
+            return passed, feedback
+        except json.JSONDecodeError:
+            logger.error(f"Не удалось распарсить ответ API как JSON: {response.text}")
+            # Извлекаем информацию из текстового ответа как запасной вариант
+            text = response.text
+            passed = "прошел" in text.lower() or "правильно" in text.lower() or "успешно" in text.lower()
+            return passed, text
+        
+    except Exception as e:
+        logger.error(f"Ошибка при проверке перефразирования: {e}")
+        return False, "Произошла ошибка при проверке вашего ответа."
 
 # Load API key on module import
 load_api_key()

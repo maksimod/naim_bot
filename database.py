@@ -360,3 +360,33 @@ def get_interview_status(user_id):
             'recruiter_response': result[3]
         }
     return None
+
+def user_exists(user_id):
+    """Check if a user exists in the database"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    
+    return result is not None
+
+def create_user(user_id, username):
+    """Create a new user in the database with minimal information"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    # Initial unlocked stages - only first two options are unlocked
+    unlocked_stages = json.dumps([
+        'about_company',
+        'primary_file'
+    ])
+    
+    cursor.execute(
+        'INSERT INTO users (user_id, username, unlocked_stages) VALUES (?, ?, ?)',
+        (user_id, username, unlocked_stages)
+    )
+    
+    conn.commit()
+    conn.close()
