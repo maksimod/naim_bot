@@ -33,6 +33,7 @@ async def send_main_menu(update, context, message=None, edit=False):
         ("about_company", "🟢 Узнать о компании"),
         ("primary_file", "🟢 Первичный файл"),
         ("where_to_start", "🔴 С чего начать"),
+        ("logic_test", "🔴 Тест на логику"),
         ("preparation_materials", "🔴 Материалы для подготовки"),
         ("take_test", "🔴 Пройти испытание"),
         ("interview_prep", "🔴 Подготовка к собеседованию"),
@@ -69,6 +70,13 @@ async def send_main_menu(update, context, message=None, edit=False):
             elif stage_id == "take_test" and "take_test_result" in admin_test_results:
                 # Show ✅ or ❌ based on test result
                 if admin_test_results["take_test_result"]:
+                    stage_name = stage_name.replace("🟢", "✅")
+                else:
+                    stage_name = stage_name.replace("🟢", "❌")
+            
+            elif stage_id == "logic_test" and "logic_test_result" in admin_test_results:
+                # Show ✅ or ❌ based on test result
+                if admin_test_results["logic_test_result"]:
                     stage_name = stage_name.replace("🟢", "✅")
                 else:
                     stage_name = stage_name.replace("🟢", "❌")
@@ -146,10 +154,31 @@ async def send_main_menu(update, context, message=None, edit=False):
                     keyboard.append([InlineKeyboardButton(stage_name, callback_data=stage_id)])
                     continue  # Skip the rest of the loop for this item
             
-            # Special handling for preparation_materials - unlock after where_to_start_test regardless of result
-            if stage_id == "preparation_materials":
+            # Special handling for logic_test - unlock after where_to_start test regardless of result
+            if stage_id == "logic_test":
                 # Check if there's a test result for where_to_start_test
                 if "where_to_start_test" in display_test_results:
+                    # If there's a test result, this stage should be unlocked regardless of pass/fail
+                    if stage_id not in unlocked_stages:
+                        db.unlock_stage(user_id, "logic_test")
+                        unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
+                    
+                    # Check if there's a test result for this stage
+                    if "logic_test_result" in display_test_results:
+                        if display_test_results["logic_test_result"]:
+                            # Test passed
+                            stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
+                        else:
+                            # Test failed
+                            stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
+                    elif stage_id in unlocked_stages:
+                        # No test result - show as unlocked
+                        stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
+            
+            # Special handling for preparation_materials - unlock after logic_test result regardless of result
+            if stage_id == "preparation_materials":
+                # Check if there's a test result for logic_test_result
+                if "logic_test_result" in display_test_results:
                     # If there's a test result, this stage should be unlocked regardless of pass/fail
                     if stage_id not in unlocked_stages:
                         db.unlock_stage(user_id, "preparation_materials")
@@ -283,6 +312,10 @@ async def handle_test_completion(update, context):
     # Determine if user passed (need 70% or higher)
     passed = score >= 70
     
+    # Для теста на логику особое условие - минимум 22 из 30 правильных ответов
+    if test_name == "logic_test_result":
+        passed = correct_answers >= 22
+    
     # In regular mode, save result to database
     # In admin mode, save to context.user_data instead
     if admin_mode:
@@ -301,6 +334,8 @@ async def handle_test_completion(update, context):
     if test_name == "primary_test":
         next_stage = "where_to_start"
     elif test_name == "where_to_start_test":
+        next_stage = "logic_test"
+    elif test_name == "logic_test_result":
         next_stage = "preparation_materials"
     elif test_name == "take_test_result":
         next_stage = "interview_prep"

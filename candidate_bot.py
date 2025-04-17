@@ -49,6 +49,18 @@ async def main():
                 CallbackQueryHandler(candidate_handlers.handle_test_answer),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
             ],
+            CandidateStates.LOGIC_TEST: [
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
+            ],
+            CandidateStates.LOGIC_TEST_PREPARE: [
+                CallbackQueryHandler(button_handlers.button_click),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
+            ],
+            CandidateStates.LOGIC_TEST_TESTING: [
+                CallbackQueryHandler(candidate_handlers.handle_test_answer),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)
+            ],
             CandidateStates.PREPARATION_MATERIALS: [
                 CallbackQueryHandler(button_handlers.button_click),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, command_handlers.unknown_message)

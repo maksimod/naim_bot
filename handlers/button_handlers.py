@@ -257,6 +257,86 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return CandidateStates.WHERE_TO_START_TEST
     
+    # Handler for logic_test menu option
+    elif (query.data == "logic_test" and "logic_test" in unlocked_stages) or admin_mode and query.data == "logic_test":
+        content = load_text_content("logic_test_prepare.txt")
+        
+        # Редактируем текущее сообщение
+        keyboard = [
+            [InlineKeyboardButton("Пройти тест", callback_data="logic_test_start")],
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                content + "\n\nЧтобы разблокировать следующий этап, пройдите тест на логику.",
+                reply_markup=reply_markup
+            )
+            context.user_data["content_message_id"] = query.message.message_id
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            return await send_main_menu(update, context, edit=True)
+            
+        return CandidateStates.LOGIC_TEST
+        
+    # Handler for starting the logic test
+    elif query.data == "logic_test_start":
+        # Show warning before starting the test
+        warning_message = (
+            "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
+            "Перед началом теста на логику, пожалуйста, внимательно ознакомьтесь с материалами. " +
+            "<b>Для успешного прохождения необходимо правильно ответить как минимум на 22 вопроса из 30.</b>\n\n" +
+            "Вы уверены, что готовы начать тест?"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, я готов", callback_data="confirm_logic_test")],
+            [InlineKeyboardButton("❌ Нет, вернуться к материалам", callback_data="logic_test")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            await query.message.reply_text(warning_message, reply_markup=reply_markup, parse_mode='HTML')
+            
+        return CandidateStates.LOGIC_TEST_PREPARE
+        
+    # Handler for confirming the logic test
+    elif query.data == "confirm_logic_test":
+        # Load test questions
+        test_data = load_test_questions("logic_test.json")
+        if not test_data:
+            try:
+                await query.edit_message_text(
+                    "Ошибка загрузки теста. Пожалуйста, попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                    ])
+                )
+            except Exception as e:
+                logger.error(f"Error editing message: {e}")
+                await query.message.reply_text("Ошибка загрузки теста. Пожалуйста, попробуйте позже.")
+            return CandidateStates.MAIN_MENU
+        
+        # Store test data in context
+        context.user_data["current_test"] = "logic_test_result"
+        context.user_data["test_data"] = test_data
+        context.user_data["current_question"] = 0
+        context.user_data["correct_answers"] = 0
+        
+        # Send the first question by editing the current message
+        try:
+            await send_test_question(update, context, edit_message=True)
+        except Exception as e:
+            logger.error(f"Error editing message for test: {e}")
+            # If editing fails, send as a new message
+            await send_test_question(update, context, edit_message=False)
+        
+        return CandidateStates.LOGIC_TEST_TESTING
+    
     # Contact developers - FIX: emoji display issue
     elif query.data == "contact_developers":
         # Edit the message to include the return button
@@ -614,12 +694,13 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         test_names = {
             "primary_test": "Первичный файл",
             "where_to_start_test": "С чего начать",
+            "logic_test_result": "Тест на логику",
             "take_test_result": "Пройти испытание", 
             "interview_prep_test": "Подготовка к собеседованию"
         }
         
         # Всего тестов и количество пройденных
-        total_tests = len(test_names)  # Всегда 4 теста
+        total_tests = len(test_names)  # Всегда 5 тестов
         passed_tests = 0
         
         test_status = []
@@ -636,8 +717,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         test_results_message += "\n".join(test_status)
         test_results_message += f"\n\nВсего пройдено {passed_tests} из {total_tests} тестов."
         
-        # Check if the user has passed at least 3 out of 4 tests
-        if passed_tests >= 2:  # More than 50% requirement
+        # Check if the user has passed at least 3 out of 5 tests
+        if passed_tests >= 3:  # More than 50% requirement
             congratulations_message = (
                 "🎉 Поздравляем! Вы успешно прошли все необходимые этапы и готовы к собеседованию!\n\n"
                 "Наш HR-менеджер свяжется с вами в ближайшее время для назначения даты и времени собеседования.\n\n"

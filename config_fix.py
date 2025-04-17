@@ -24,3 +24,16 @@ if not hasattr(CandidateStates, 'INTERVIEW_PREP_TEST'):
     # Add the missing state
     setattr(CandidateStates, 'INTERVIEW_PREP_TEST', 'interview_prep_test')
     print("Added missing INTERVIEW_PREP_TEST state")
+
+# Ensure LOGIC_TEST states are defined in CandidateStates
+if not hasattr(CandidateStates, 'LOGIC_TEST'):
+    setattr(CandidateStates, 'LOGIC_TEST', 'logic_test')
+    print("Added missing LOGIC_TEST state")
+
+if not hasattr(CandidateStates, 'LOGIC_TEST_PREPARE'):
+    setattr(CandidateStates, 'LOGIC_TEST_PREPARE', 'logic_test_prepare')
+    print("Added missing LOGIC_TEST_PREPARE state")
+
+if not hasattr(CandidateStates, 'LOGIC_TEST_TESTING'):
+    setattr(CandidateStates, 'LOGIC_TEST_TESTING', 'logic_test_testing')
+    print("Added missing LOGIC_TEST_TESTING state")
