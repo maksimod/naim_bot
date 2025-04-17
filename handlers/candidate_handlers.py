@@ -348,38 +348,41 @@ async def send_test_question(update, context, edit_message=False):
         if "test_timer_job" in context.user_data:
             try:
                 context.user_data["test_timer_job"].schedule_removal()
+                logger.info("Таймер остановлен при завершении теста")
             except Exception as e:
-                logger.error(f"Error removing old timer job: {e}")
+                logger.error(f"Ошибка при остановке таймера: {e}")
         
         # Данные для передачи в функцию обновления таймера
         job_data = {
             "chat_id": update.effective_chat.id,
             "message_id": message_id,
-            "test_data": questions,
+            "questions": questions,
             "current_question": current_question,
             "end_time": context.user_data["test_end_time"],
             "update": update,
             "context_obj": context
         }
         
-        # Сохраняем информацию о текущем тесте в context.user_data, чтобы таймер мог к ней обращаться
-        context.user_data["timer_data"] = {
-            "message_id": message_id,
-            "chat_id": update.effective_chat.id,
-            "current_question": current_question
-        }
-        
         try:
-            # Создаем новый таймер, обновляющий сообщение каждую секунду
+            # Запускаем таймер, который будет обновлять сообщение каждую секунду
             job = context.job_queue.run_repeating(
                 update_timer,
-                interval=1,
-                first=1,
-                data=job_data
+                interval=1.0,  # Интервал обновления - 1 секунда
+                first=1.0,     # Первое обновление через 1 секунду
+                data=job_data,
+                name=f"timer_{update.effective_chat.id}"
             )
             context.user_data["test_timer_job"] = job
+            logger.info(f"Запущен таймер для теста, оставшееся время: {time_str}")
         except Exception as e:
-            logger.error(f"Error creating timer job: {e}")
+            logger.error(f"Ошибка при запуске таймера: {e}")
+            logger.error(f"Параметры задания: {job_data}")
+        
+        # Сохраняем данные для таймера в контексте, чтобы иметь к ним доступ при необходимости
+        context.user_data["timer_data"] = {
+            "message_id": message_id,
+            "chat_id": update.effective_chat.id
+        }
 
 async def handle_test_completion(update, context):
     """Handle the completion of a test and determine if user passed"""
@@ -492,7 +495,7 @@ async def handle_test_completion(update, context):
             reply_markup=reply_markup
         )
     
-    # Clear test data from context
+    # Очищаем данные теста из контекста
     if "current_test" in context.user_data:
         del context.user_data["current_test"]
     if "test_data" in context.user_data:
@@ -505,9 +508,16 @@ async def handle_test_completion(update, context):
         del context.user_data["test_start_time"]
     if "test_end_time" in context.user_data:
         del context.user_data["test_end_time"]
+    if "timer_data" in context.user_data:
+        del context.user_data["timer_data"]
+    
     # Останавливаем таймер, если он существует
     if "test_timer_job" in context.user_data:
-        context.user_data["test_timer_job"].schedule_removal()
+        try:
+            context.user_data["test_timer_job"].schedule_removal()
+            logger.info("Таймер остановлен при завершении теста")
+        except Exception as e:
+            logger.error(f"Ошибка при остановке таймера: {e}")
         del context.user_data["test_timer_job"]
     
     # Не возвращаемся сразу в главное меню, т.к. пользователь может 
@@ -541,6 +551,15 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         # Parse the answer index from callback data
         if query.data.startswith("answer_"):
+            # Проверяем, не истекло ли время теста
+            if "test_end_time" in context.user_data:
+                now = time.time()
+                end_time = context.user_data["test_end_time"]
+                if now >= end_time:
+                    # Время истекло, завершаем тест
+                    logger.info(f"Time expired for test when processing answer")
+                    return await test_timeout(update, context)
+            
             answer_index = int(query.data.split('_')[1])
             question = questions[current_question]
             
@@ -679,79 +698,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Default: return to main menu
     return await send_main_menu(update, context)
 
-async def update_timer(context: ContextTypes.DEFAULT_TYPE):
-    """Обновляет таймер в сообщении с тестом"""
-    chat_id = context.job.data.get("chat_id")
-    message_id = context.job.data.get("message_id")
-    test_data = context.job.data.get("test_data")
-    current_question = context.job.data.get("current_question", 0)
-    end_time = context.job.data.get("end_time")
-    update = context.job.data.get("update")
-    context_obj = context.job.data.get("context_obj")
-    
-    # Проверяем, остались ли у пользователя попытки
-    if "current_test" not in context_obj.user_data:
-        # Тест уже завершен, останавливаем таймер
-        return
-    
-    # Проверяем, не изменился ли вопрос
-    if current_question != context_obj.user_data.get("current_question", 0):
-        # Вопрос изменился, не обновляем
-        return
-    
-    # Проверяем, не завершен ли тест
-    if "test_data" not in context_obj.user_data:
-        # Тест завершен, останавливаем таймер
-        return
-    
-    now = time.time()
-    remaining = end_time - now
-    
-    if remaining <= 0:
-        # Время истекло, завершаем тест как непройденный
-        logger.info(f"Time expired for test in chat {chat_id}")
-        await test_timeout(update, context_obj)
-        return
-    
-    # Форматируем оставшееся время
-    time_str = format_time(remaining)
-    
-    # Получаем текущий вопрос и актуальные данные из контекста пользователя
-    questions = []
-    if isinstance(context_obj.user_data.get("test_data", {}), dict) and "questions" in context_obj.user_data["test_data"]:
-        questions = context_obj.user_data["test_data"]["questions"]
-    else:
-        questions = context_obj.user_data.get("test_data", [])
-    
-    # Проверяем, что текущий вопрос доступен
-    if current_question >= len(questions):
-        return
-    
-    question = questions[current_question]
-    question_text = f"Времени осталось: {time_str}\nВопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}"
-    
-    # Создаем клавиатуру с вариантами ответов
-    keyboard = []
-    options = question.get('options', question.get('answers', []))
-    for i, answer in enumerate(options):
-        keyboard.append([InlineKeyboardButton(f"{i+1}. {answer}", callback_data=f"answer_{i}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    try:
-        # Обновляем сообщение с вопросом, отображая новое время
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=question_text,
-            reply_markup=reply_markup
-        )
-    except Exception as e:
-        logger.error(f"Error updating timer: {e}")
-        # Останавливаем таймер при ошибке обновления
-        if "test_timer_job" in context_obj.user_data:
-            context_obj.user_data["test_timer_job"].schedule_removal()
-
 async def test_timeout(update, context):
     """Обрабатывает истечение времени теста"""
     test_name = context.user_data.get("current_test")
@@ -838,10 +784,20 @@ async def test_timeout(update, context):
         del context.user_data["test_start_time"]
     if "test_end_time" in context.user_data:
         del context.user_data["test_end_time"]
+    if "timer_data" in context.user_data:
+        del context.user_data["timer_data"]
+    
+    # Останавливаем таймер, если он существует
     if "test_timer_job" in context.user_data:
-        context.user_data["test_timer_job"].schedule_removal()
+        try:
+            context.user_data["test_timer_job"].schedule_removal()
+            logger.info("Таймер остановлен при завершении теста")
+        except Exception as e:
+            logger.error(f"Ошибка при остановке таймера: {e}")
         del context.user_data["test_timer_job"]
     
+    # Не возвращаемся сразу в главное меню, т.к. пользователь может 
+    # захотеть прочитать сообщение о результатах
     return CandidateStates.MAIN_MENU
 
 def format_time(seconds):
@@ -858,3 +814,60 @@ def get_test_time_limit(test_name):
         "take_test_result": 300,    # 5 минут
     }
     return time_limits.get(test_name, None)  # None означает нет ограничения времени
+
+async def update_timer(context: ContextTypes.DEFAULT_TYPE):
+    """Обновляет таймер в сообщении с тестом"""
+    try:
+        job_data = context.job.data
+        chat_id = job_data.get("chat_id")
+        message_id = job_data.get("message_id")
+        questions = job_data.get("questions")
+        current_question = job_data.get("current_question")
+        end_time = job_data.get("end_time")
+        context_obj = job_data.get("context_obj")
+        
+        # Проверяем, не завершен ли тест
+        if ("current_test" not in context_obj.user_data) or ("test_data" not in context_obj.user_data):
+            logger.info("Тест завершен, останавливаем таймер")
+            return
+        
+        # Если текущий вопрос изменился, не обновляем
+        if current_question != context_obj.user_data.get("current_question", 0):
+            logger.info(f"Текущий вопрос изменился: {current_question} -> {context_obj.user_data.get('current_question', 0)}")
+            return
+        
+        # Проверяем, не истекло ли время
+        now = time.time()
+        remaining = end_time - now
+        
+        if remaining <= 0:
+            # Время истекло, завершаем тест
+            logger.info(f"Время истекло для теста в чате {chat_id}")
+            await test_timeout(job_data.get("update"), context_obj)
+            return
+        
+        # Форматируем оставшееся время
+        time_str = format_time(remaining)
+        
+        # Получаем текущий вопрос
+        question = questions[current_question]
+        question_text = f"Времени осталось: {time_str}\nВопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}"
+        
+        # Создаем клавиатуру с вариантами ответов
+        keyboard = []
+        options = question.get('options', question.get('answers', []))
+        for i, answer in enumerate(options):
+            keyboard.append([InlineKeyboardButton(f"{i+1}. {answer}", callback_data=f"answer_{i}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Обновляем сообщение
+        await context_obj.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=question_text,
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении таймера: {e}")
