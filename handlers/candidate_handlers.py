@@ -930,9 +930,61 @@ async def start_stopwords_test(update, context):
         )
         return CandidateStates.MAIN_MENU
     
-    # Перемешиваем и выбираем 10 случайных стоп-слов
+    # Отправляем инструкцию перед началом теста
+    instructions = (
+        "📝 <b>Тест на знание стоп-слов</b>\n\n"
+        "В этом тесте вам будут показаны предложения, содержащие стоп-слова.\n"
+        "Ваша задача - перефразировать предложение так, чтобы в нём НЕ использовалось указанное стоп-слово, "
+        "но при этом сохранялся смысл.\n\n"
+        "Например:\n"
+        "Предложение: \"В рабочей ситуации часто используют слово 'Наверное', что создает неуверенность.\"\n"
+        "Стоп-слово: <b>Наверное</b>\n\n"
+        "Хороший ответ: \"В деловой коммуникации лучше использовать утвердительные формулировки вместо неуверенных выражений.\"\n\n"
+        "У вас будет 5 минут на прохождение всего теста.\n"
+        "Нажмите кнопку ниже, чтобы начать."
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("▶️ Начать тест", callback_data="begin_stopwords_test")],
+        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        instructions,
+        reply_markup=reply_markup,
+        parse_mode="HTML"
+    )
+    
+    # Сохраняем выбранные стоп-слова для использования при запуске теста
     random.shuffle(stopwords_data)
     selected_stopwords = stopwords_data[:10] if len(stopwords_data) >= 10 else stopwords_data
+    context.user_data["selected_stopwords"] = selected_stopwords
+    
+    return CandidateStates.STOPWORDS_TEST
+
+async def begin_stopwords_test(update, context):
+    """Начать тест стоп-слов после просмотра инструкции"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Получаем ранее подготовленные стоп-слова
+    selected_stopwords = context.user_data.get("selected_stopwords", [])
+    
+    if not selected_stopwords:
+        # Если по какой-то причине стоп-слова не были сохранены, получаем их снова
+        stopwords_data = get_stopwords_data()
+        if not stopwords_data:
+            await query.edit_message_text(
+                "К сожалению, не удалось загрузить данные о стоп-словах. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+            return CandidateStates.MAIN_MENU
+        
+        random.shuffle(stopwords_data)
+        selected_stopwords = stopwords_data[:10] if len(stopwords_data) >= 10 else stopwords_data
     
     # Сохраняем выбранные стоп-слова в контексте пользователя
     context.user_data["stopwords_test"] = {
@@ -969,17 +1021,20 @@ async def send_stopword_question(update, context, edit_message=True):
     remaining_time = end_time - now
     time_str = format_time(remaining_time)
     
-    # Генерируем предложение со стоп-словом
+    # Получаем текущий стоп-слово
     stopword = stopwords[current_question]
     sentence = generate_sentence_with_stopword(stopword)
+    
+    # Сохраняем информацию о чате для обновления таймера
+    context.user_data["stopwords_test"]["chat_id"] = update.effective_chat.id
     
     # Формируем сообщение с вопросом
     message = (
         f"⏱ Осталось времени: {time_str}\n\n"
         f"Вопрос {current_question + 1} из {len(stopwords)}\n\n"
-        f"Перефразируйте предложение, *избегая использования стоп-слова*:\n\n"
-        f"*{sentence}*\n\n"
-        f"Стоп-слово: *{stopword['word']}*\n\n"
+        f"Перефразируйте предложение, избегая использования стоп-слова:\n\n"
+        f"{sentence}\n\n"
+        f"Стоп-слово: {stopword['word']}\n\n"
         f"Введите ваш вариант предложения без стоп-слова:"
     )
     
@@ -991,24 +1046,24 @@ async def send_stopword_question(update, context, edit_message=True):
     context.user_data["awaiting_stopword_answer"] = True
     
     # Отправляем сообщение
+    sent_message = None
+    
     if edit_message and hasattr(update, 'callback_query') and update.callback_query:
         try:
-            await update.callback_query.edit_message_text(
-                text=message,
-                parse_mode="Markdown"
-            )
+            sent_message = await update.callback_query.edit_message_text(text=message)
             return CandidateStates.STOPWORDS_TEST
         except Exception as e:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
-            # Если не удалось отредактировать, отправляем новое
-            
-    # Отправляем новое сообщение
-    await update.effective_chat.send_message(
-        text=message,
-        parse_mode="Markdown"
-    )
+            # Если не удалось отредактировать, отправляем новое сообщение ниже
     
-    # Запускаем таймер для обновления оставшегося времени
+    if not sent_message:
+        # Отправляем новое сообщение только если не удалось отредактировать существующее
+        sent_message = await update.effective_chat.send_message(text=message)
+    
+    # Сохраняем ID сообщения для обновления таймера
+    context.user_data["stopwords_test"]["message_id"] = sent_message.message_id
+    
+    # Запускаем таймер для обновления времени
     if "stopword_timer_job" in context.user_data:
         try:
             context.user_data["stopword_timer_job"].schedule_removal()
@@ -1016,10 +1071,11 @@ async def send_stopword_question(update, context, edit_message=True):
             logger.error(f"Ошибка при остановке таймера: {e}")
     
     try:
+        # Запускаем таймер с обновлением каждую секунду
         job = context.job_queue.run_repeating(
             update_stopwords_timer,
-            interval=5.0,  # Обновляем каждые 5 секунд
-            first=5.0,
+            interval=1.0,  # Обновляем каждую секунду
+            first=1.0,
             data={
                 "chat_id": update.effective_chat.id,
                 "user_id": update.effective_user.id,
@@ -1037,16 +1093,30 @@ async def update_stopwords_timer(context):
     """Функция для периодического обновления времени теста"""
     try:
         job_data = context.job.data
-        user_id = job_data.get("user_id")
         context_obj = job_data.get("context_obj")
         
         # Проверяем, активен ли тест
-        if "stopwords_test" not in context_obj.user_data or "awaiting_stopword_answer" not in context_obj.user_data:
+        if ("stopwords_test" not in context_obj.user_data or 
+            "awaiting_stopword_answer" not in context_obj.user_data or 
+            not context_obj.user_data.get("awaiting_stopword_answer", False)):
+            logger.info("Тест стоп-слов неактивен, останавливаем таймер")
             context.job.schedule_removal()
             return
         
-        # Получаем данные о времени
-        end_time = context_obj.user_data["stopwords_test"].get("end_time", 0)
+        # Получаем данные о тесте
+        test_data = context_obj.user_data.get("stopwords_test", {})
+        end_time = test_data.get("end_time", 0)
+        current_question = test_data.get("current_question", 0)
+        stopwords = test_data.get("stopwords", [])
+        chat_id = test_data.get("chat_id")
+        message_id = test_data.get("message_id")
+        
+        # Проверяем, есть ли все необходимые данные
+        if not chat_id or not message_id:
+            logger.error("Не найдены данные сообщения для обновления таймера")
+            return
+            
+        # Текущее время и оставшееся время
         now = time.time()
         
         # Если время истекло, завершаем тест
@@ -1054,9 +1124,48 @@ async def update_stopwords_timer(context):
             await stopwords_test_timeout(None, context_obj)
             context.job.schedule_removal()
             return
+            
+        # Форматируем оставшееся время
+        remaining_time = end_time - now
+        time_str = format_time(remaining_time)
+        
+        # Получаем текущий вопрос и предложение
+        if current_question < len(stopwords):
+            stopword = stopwords[current_question]
+            sentence = context_obj.user_data.get("current_sentence")
+            
+            if not sentence:
+                logger.error("Не найдено предложение для обновления таймера")
+                return
+                
+            # Формируем обновленное сообщение с новым временем
+            updated_message = (
+                f"⏱ Осталось времени: {time_str}\n\n"
+                f"Вопрос {current_question + 1} из {len(stopwords)}\n\n"
+                f"Перефразируйте предложение, избегая использования стоп-слова:\n\n"
+                f"{sentence}\n\n"
+                f"Стоп-слово: {stopword['word']}\n\n"
+                f"Введите ваш вариант предложения без стоп-слова:"
+            )
+            
+            # Обновляем сообщение
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=updated_message
+                )
+            except Exception as e:
+                # Игнорируем ошибку, если сообщение не изменилось
+                if "message is not modified" not in str(e).lower():
+                    logger.error(f"Ошибка при обновлении таймера: {e}")
+                    
     except Exception as e:
-        logger.error(f"Ошибка при обновлении таймера: {e}")
-        context.job.schedule_removal()
+        logger.error(f"Ошибка при обновлении таймера стоп-слов: {e}")
+        try:
+            context.job.schedule_removal()
+        except:
+            pass
 
 async def handle_stopword_answer(update, context):
     """Обработка ответа пользователя на вопрос теста стоп-слов"""
@@ -1113,6 +1222,19 @@ async def next_stopword_question(update, context):
     """Переход к следующему вопросу в тесте стоп-слов"""
     query = update.callback_query
     await query.answer()
+    
+    # Проверяем существование данных теста
+    if "stopwords_test" not in context.user_data:
+        # Если данные отсутствуют, возможно, тест был перезапущен или произошла ошибка
+        logger.error("Данные теста отсутствуют в next_stopword_question")
+        await query.edit_message_text(
+            "Произошла ошибка при переходе к следующему вопросу. Пожалуйста, начните тест заново.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")],
+                [InlineKeyboardButton("🔄 Начать тест заново", callback_data="start_stopwords_test")]
+            ])
+        )
+        return CandidateStates.MAIN_MENU
     
     # Увеличиваем счетчик вопросов
     context.user_data["stopwords_test"]["current_question"] += 1

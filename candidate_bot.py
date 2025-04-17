@@ -8,8 +8,9 @@ from config import CandidateStates, CANDIDATE_BOT_TOKEN
 from handlers.candidate_handlers import (
     send_main_menu, handle_message, handle_test_answer,
     handle_where_to_start, start_stopwords_test, handle_stopword_answer,
-    next_stopword_question
+    next_stopword_question, begin_stopwords_test
 )
+from handlers.button_handlers import button_click
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -52,10 +53,14 @@ def main():
     # Обработчики для раздела "С чего начать"
     application.add_handler(CallbackQueryHandler(handle_where_to_start, pattern="^where_to_start$"))
     application.add_handler(CallbackQueryHandler(start_stopwords_test, pattern="^start_stopwords_test$"))
+    application.add_handler(CallbackQueryHandler(begin_stopwords_test, pattern="^begin_stopwords_test$"))
     application.add_handler(CallbackQueryHandler(next_stopword_question, pattern="^next_stopword_question$"))
     
     # Обработчики для тестов
     application.add_handler(CallbackQueryHandler(handle_test_answer, pattern="^answer_"))
+    
+    # Общий обработчик для всех кнопок меню
+    application.add_handler(CallbackQueryHandler(button_click))
     
     # Обработчик для текстовых сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

@@ -23,6 +23,7 @@ class CandidateStates:
     TAKE_TEST = 'take_test'
     INTERVIEW_PREP = 'interview_prep'
     SCHEDULE_INTERVIEW = 'schedule_interview'
+    STOPWORDS_TEST = 'stopwords_test'
 
 class RecruiterStates:
     MAIN_MENU = 'main_menu'
