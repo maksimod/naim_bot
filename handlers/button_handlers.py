@@ -155,6 +155,20 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CandidateStates.PRIMARY_FILE
     
     elif query.data == "confirm_primary_test":
+        # Проверяем, проходил ли пользователь уже этот тест
+        user_id = update.effective_user.id
+        user_test_results = db.get_user_test_results(user_id)
+        
+        # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
+        if "primary_test" in user_test_results:
+            await query.edit_message_text(
+                "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+            return CandidateStates.MAIN_MENU
+            
         # Load test questions
         test_data = load_test_questions("primary_test.json")
         if not test_data:
@@ -227,6 +241,20 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CandidateStates.WHERE_TO_START
     
     elif query.data == "confirm_where_to_start_test":
+        # Проверяем, проходил ли пользователь уже этот тест
+        user_id = update.effective_user.id
+        user_test_results = db.get_user_test_results(user_id)
+        
+        # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
+        if "where_to_start_test" in user_test_results:
+            await query.edit_message_text(
+                "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+            return CandidateStates.MAIN_MENU
+        
         # Load test questions
         test_data = load_test_questions("where_to_start_test.json")
         if not test_data:
@@ -356,6 +384,20 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     # Handler for confirming the logic test
     elif query.data == "confirm_logic_test":
+        # Проверяем, проходил ли пользователь уже этот тест
+        user_id = update.effective_user.id
+        user_test_results = db.get_user_test_results(user_id)
+        
+        # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
+        if "logic_test_result" in user_test_results:
+            await query.edit_message_text(
+                "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+            return CandidateStates.MAIN_MENU
+            
         # Load test questions
         test_data = load_test_questions("logic_test.json")
         if not test_data:
@@ -565,6 +607,20 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handler for take_test button
     elif (query.data == "take_test" and "take_test" in unlocked_stages) or admin_mode and query.data == "take_test":
         try:
+            # Проверяем, проходил ли пользователь уже этот тест
+            user_id = update.effective_user.id
+            user_test_results = db.get_user_test_results(user_id)
+            
+            # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
+            if "take_test_result" in user_test_results:
+                await query.edit_message_text(
+                    "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                    ])
+                )
+                return CandidateStates.MAIN_MENU
+                
             # Load the task description
             task_content = load_text_content("past_the_test.txt")
             
@@ -607,10 +663,24 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "awaiting_solution" not in context.user_data or not context.user_data["awaiting_solution"]:
             # If we're not awaiting a solution, return to main menu
             return await send_main_menu(update, context)
+            
+        # Проверяем, проходил ли пользователь уже этот тест
+        user_id = update.effective_user.id
+        user_test_results = db.get_user_test_results(user_id)
         
+        # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
+        if "take_test_result" in user_test_results:
+            await query.edit_message_text(
+                "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+            return CandidateStates.MAIN_MENU
+            
         # Text to send
         message_text = ("Пожалуйста, отправьте ваше решение задачи в следующем сообщении.\n\n"
-                        "Вставьте полный текст вашего диалога с ИИ, включая задание и решение.")
+                       "Вставьте полный текст вашего диалога с ИИ, включая задание и решение.")
         reply_markup = InlineKeyboardMarkup([
             [InlineKeyboardButton("⬅️ Отмена и возврат в меню", callback_data="back_to_menu")]
         ])
@@ -704,6 +774,20 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Handler for confirm_interview_prep_test
     elif query.data == "confirm_interview_prep_test":
+        # Проверяем, проходил ли пользователь уже этот тест
+        user_id = update.effective_user.id
+        user_test_results = db.get_user_test_results(user_id)
+        
+        # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
+        if "interview_prep_test" in user_test_results:
+            await query.edit_message_text(
+                "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+            return CandidateStates.MAIN_MENU
+            
         # Load test questions
         test_data = load_test_questions("interview_prep_test.json")
         if not test_data:
@@ -729,7 +813,6 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handler for scheduled_interview button
     elif (query.data == "schedule_interview" and "schedule_interview" in unlocked_stages) or admin_mode and query.data == "schedule_interview":
         # Get the test results for the user
-        user_id = update.effective_user.id
         user_test_results = db.get_user_test_results(user_id)
         
         # В режиме администратора используем результаты из context.user_data
