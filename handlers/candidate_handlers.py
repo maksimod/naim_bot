@@ -424,20 +424,8 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if is_correct:
                 # Increment correct answers count
                 context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
-                feedback_text = "✅ Правильно!"
-            else:
-                # Берем варианты ответов
-                options = question.get('options', [])
-                feedback_text = f"❌ Неправильно. Правильный ответ: {options[correct_answer]}"
             
-            # Show feedback
-            await query.edit_message_text(
-                text=f"{query.message.text}\n\n{feedback_text}",
-                reply_markup=None
-            )
-            
-            # Move to next question after a brief pause
-            await asyncio.sleep(2)
+            # Сразу переходим к следующему вопросу без показа правильности ответа
             context.user_data["current_question"] = current_question + 1
             
             # If this is the last question, complete the test
