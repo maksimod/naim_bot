@@ -420,10 +420,10 @@ async def generate_ai_stopword_sentence(stopword_data):
             if retry_response.status_code != 200:
                 raise Exception(f"Повторная ошибка API: {retry_response.status_code}")
             
-            return retry_response.text.strip().strip('"\'')
+            return extract_sentence_from_response(retry_response.text)
         
         # Получаем сгенерированное предложение
-        ai_sentence = response.text.strip().strip('"\'')
+        ai_sentence = extract_sentence_from_response(response.text)
         
         # Проверяем, что предложение содержит стоп-слово
         if stopword_data.get('word', '').lower() not in ai_sentence.lower():
@@ -451,7 +451,7 @@ async def generate_ai_stopword_sentence(stopword_data):
             }, timeout=15)
             
             if retry_response.status_code == 200:
-                return retry_response.text.strip().strip('"\'')
+                return extract_sentence_from_response(retry_response.text)
             else:
                 # Если и повторный запрос не удался, делаем еще одну попытку с простейшим промптом
                 final_prompt = f'Напиши одно предложение со словом "{stopword_data.get("word", "")}".'
@@ -461,7 +461,7 @@ async def generate_ai_stopword_sentence(stopword_data):
                     "format": "text"
                 }, timeout=10)
                 
-                return final_response.text.strip().strip('"\'')
+                return extract_sentence_from_response(final_response.text)
         
         # Возвращаем предложение без дополнительного форматирования
         return ai_sentence
@@ -477,10 +477,46 @@ async def generate_ai_stopword_sentence(stopword_data):
                 "format": "text"
             }, timeout=10)
             
-            return last_response.text.strip().strip('"\'')
+            return extract_sentence_from_response(last_response.text)
         except:
             # В случае полного отказа, просто возвращаем стоп-слово
             return stopword_data.get('word', '')
+
+def extract_sentence_from_response(response_text):
+    """Извлекает чистый текст предложения из ответа API, который может быть в JSON"""
+    try:
+        # Попытка распарсить как JSON
+        response_data = json.loads(response_text)
+        
+        # Если это словарь
+        if isinstance(response_data, dict):
+            # Проверяем распространенные ключи в ответах API
+            if 'output' in response_data:
+                return response_data['output']
+            elif 'text' in response_data:
+                return response_data['text']
+            elif 'content' in response_data:
+                return response_data['content']
+            elif 'response' in response_data:
+                return response_data['response']
+            elif 'result' in response_data:
+                return response_data['result']
+            else:
+                # Если ничего не нашли, возвращаем первое строковое значение
+                for key, value in response_data.items():
+                    if isinstance(value, str) and len(value) > 5:
+                        return value
+                
+                # Если не нашли подходящих строк, возвращаем весь текст
+                return str(response_data)
+    except json.JSONDecodeError:
+        # Если это не JSON, просто возвращаем текст как есть
+        pass
+    except Exception as e:
+        logger.error(f"Ошибка при извлечении предложения из ответа: {e}")
+    
+    # Удаляем кавычки в начале и конце
+    return response_text.strip().strip('"\'`').strip()
 
 async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, stopword):
     """Проверить корректность перефразированного предложения без стоп-слова используя AI"""
