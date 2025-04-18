@@ -496,10 +496,36 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     # Обработка ответа API
     result_text = response.text
     try:
-        # Пробуем напрямую распарсить JSON
-        result = json.loads(result_text)
+        # Сначала парсим внешний JSON
+        outer_result = json.loads(result_text)
+        
+        # Проверяем, есть ли поле 'output' - значит результат в нем
+        if 'output' in outer_result:
+            # Парсим JSON строку из поля 'output'
+            try:
+                inner_json = outer_result['output']
+                result = json.loads(inner_json)
+            except json.JSONDecodeError:
+                # Если не удалось распарсить внутренний JSON, пытаемся найти JSON в тексте
+                json_match = re.search(r'({\s*"passed"\s*:.*})', inner_json, re.DOTALL)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group(1))
+                    except json.JSONDecodeError:
+                        result = {
+                            "passed": False,
+                            "feedback": "Не удалось проанализировать ответ. Пожалуйста, попробуйте перефразировать иначе."
+                        }
+                else:
+                    result = {
+                        "passed": False,
+                        "feedback": "Не удалось проанализировать ответ. Пожалуйста, попробуйте перефразировать иначе."
+                    }
+        else:
+            # Если нет поля 'output', то результат, вероятно, в корне ответа
+            result = outer_result
     except json.JSONDecodeError:
-        # Если не получилось, пытаемся найти JSON в тексте с помощью регулярного выражения
+        # Если внешний JSON не распарсился, пытаемся найти JSON в тексте с помощью регулярного выражения
         json_match = re.search(r'({\s*"passed"\s*:.*})', result_text, re.DOTALL)
         if json_match:
             try:
@@ -524,10 +550,17 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     better_example = result.get("better_example", "")
     
 
-    # Добавляем информацию для отладки
-    debug_info = f"\n\nИсходное: \"{original_sentence}\"\nСтоп-слово: \"{stopword_text}\"\nВаш ответ: \"{rephrased_sentence}\"\nОбратная связь: \"{feedback}\"\Лучший пример: \"{better_example}\""
+    # Формируем итоговую обратную связь
+    final_feedback = feedback
+    if better_example:
+        final_feedback += f"\n\nЛучший пример: \"{better_example}\""
+
+    # Добавляем информацию для отладки при необходимости
+    if os.getenv("DEBUG", "false").lower() == "true":
+        debug_info = f"\n\nИсходное: \"{original_sentence}\"\nСтоп-слово: \"{stopword_text}\"\nВаш ответ: \"{rephrased_sentence}\"\nОбратная связь: \"{feedback}\"\nЛучший пример: \"{better_example}\""
+        final_feedback += debug_info
     
-    return passed, debug_info
+    return passed, final_feedback
 
 # Load API key on module import
 load_api_key()
