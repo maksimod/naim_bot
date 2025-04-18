@@ -1189,19 +1189,41 @@ async def handle_stopword_answer(update, context):
     # Проверяем, правильно ли перефразировано предложение
     message = await update.effective_chat.send_message("⏳ Проверяю ваш ответ...")
     
-    # Используем AI для проверки ответа
-    passed, feedback = await verify_stopword_rephrasing_ai(original_sentence, user_answer, stopword)
+    try:
+        # Используем AI для проверки ответа
+        passed, feedback = await verify_stopword_rephrasing_ai(original_sentence, user_answer, stopword)
+        
+        # Логируем результат для отладки
+        logger.info(f"Результат проверки: passed={passed}, feedback={feedback}")
+        
+        # Обновляем счетчик правильных ответов
+        if passed:
+            context.user_data["stopwords_test"]["correct_answers"] += 1
+        
+        # Создаем сообщение с результатами
+        result_message = (
+            f"{'✅ Правильно!' if passed else '❌ Неправильно!'}\n\n"
+            f"{feedback}\n\n"
+            f"Исходное предложение: \"{original_sentence}\"\n"
+            f"Стоп-слово: {stopword['word']}\n"
+            f"Ваш ответ: \"{user_answer}\"\n\n"
+            f"Нажмите кнопку, чтобы продолжить."
+        )
     
-    # Обновляем счетчик правильных ответов
-    if passed:
-        context.user_data["stopwords_test"]["correct_answers"] += 1
-    
-    # Создаем сообщение с результатами
-    result_message = (
-        f"{'✅ Правильно!' if passed else '❌ Неправильно!'}\n\n"
-        f"{feedback}\n\n"
-        f"Нажмите кнопку, чтобы продолжить."
-    )
+    except Exception as e:
+        logger.error(f"Ошибка при проверке ответа: {e}")
+        # В случае ошибки ИИ, пропускаем проверку и разрешаем пользователю продолжить
+        # Пользователь не должен страдать из-за ошибок в системе ИИ
+        context.user_data["stopwords_test"]["correct_answers"] += 1  # Считаем ответ правильным
+        
+        result_message = (
+            f"✅ Ответ принят\n\n"
+            f"Из-за технической ошибки не удалось проверить ваш ответ через ИИ. Ваш ответ засчитан как правильный.\n\n"
+            f"Исходное предложение: \"{original_sentence}\"\n"
+            f"Стоп-слово: {stopword['word']}\n"
+            f"Ваш ответ: \"{user_answer}\"\n\n"
+            f"Нажмите кнопку, чтобы продолжить."
+        )
     
     # Кнопка для перехода к следующему вопросу
     keyboard = [

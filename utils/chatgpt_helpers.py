@@ -530,29 +530,36 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
         all_stopwords = get_stopwords_data()
         stopwords_list = "\n".join([f"- {sw.get('word', '')}: {sw.get('description', '')}" for sw in all_stopwords])
         
-        # Создаем промпт для AI
+        # Логируем то, что проверяем для отладки
+        logger.info(f"Проверка ответа: Исходное='{original_sentence}', Ответ='{rephrased_sentence}', Стоп-слово='{stopword.get('word', '')}'")
+        
+        # Создаем промпт для AI с более мягкими требованиями
         prompt = f"""
-        Ты - руководитель компании. Твоя задача - внимательно ознакомиться с ответом пользователя. 
-        Он пытался исправить предложение со стоп словом.
+        Ты - дружелюбный руководитель компании. Твоя задача - проверить, как пользователь перефразировал предложение, убрав стоп-слово.
         
-        Исходное предложение: "{original_sentence}"
-        Исходное стоп-слово: "{stopword.get('word', '')}"
-        Перефразированный ответ пользователя: "{rephrased_sentence}"
+        Исходное предложение со стоп-словом: "{original_sentence}"
+        Стоп-слово, которое нужно было убрать: "{stopword.get('word', '')}"
+        Ответ пользователя (перефразированное предложение): "{rephrased_sentence}"
         
-        Вот стоп-слова компании, которые необходимо избегать:
+        Список стоп-слов компании:
         {stopwords_list}
         
-        Оцени ответ пользователя строго по следующим критериям:
-        1. В ответе НЕТ стоп-слова "{stopword.get('word', '')}"
-        2. Ответ сохраняет смысл исходного предложения
-        3. Ответ не содержит других стоп-слов из списка
-        4. Ответ соответствует деловому стилю общения (нет ругательств, оскорблений)
+        ВАЖНО: Будь ЛОЯЛЬНЫМ к ответу пользователя. Если смысл сохранен и стоп-слово убрано, то ответ ПРАВИЛЬНЫЙ, даже если форма предложения сильно изменена.
         
-        Ответь строго в формате JSON:
+        Критерии проверки (по приоритету):
+        1. В ответе НЕТ стоп-слова "{stopword.get('word', '')}" - это ГЛАВНОЕ требование
+        2. В целом смысл сообщения сохранен (допускаются изменения времени, деталей, формулировок)
+        3. Ответ соответствует деловому стилю общения
+        
+        Ответь ОБЯЗАТЕЛЬНО в формате JSON:
         {{
           "passed": true/false,
-          "feedback": "конкретная обратная связь с объяснением результата"
+          "feedback": "подробный комментарий с объяснением",
+          "better_example": "пример лучшего варианта перефразирования (ОБЯЗАТЕЛЬНО указывай, даже если ответ правильный)"
         }}
+        
+        Если ответ правильный, похвали пользователя.
+        Если ответ неправильный, ОБЯЗАТЕЛЬНО объясни конкретную причину и предложи лучший вариант.
         """
         
         # Отправляем запрос к API
@@ -560,31 +567,56 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
             "text": rephrased_sentence,
             "prompt": prompt,
             "format": "json"
-        }, timeout=10)
+        }, timeout=15)
         
         # Обрабатываем ответ
         if response.status_code != 200:
             logger.error(f"Ошибка при проверке ответа: {response.status_code}, {response.text}")
             raise Exception(f"Ошибка API: {response.status_code}")
         
+        # Пытаемся распарсить ответ
         try:
-            # Пытаемся распарсить JSON ответ
-            result = response.json()
+            # Логируем полный ответ API для отладки
+            logger.info(f"Ответ API на проверку: {response.text}")
+            
+            # Если ответ в текстовом формате, пытаемся извлечь JSON
+            result_text = response.text
+            
+            try:
+                # Пытаемся найти JSON в тексте с помощью регулярного выражения
+                json_match = re.search(r'({.*})', result_text)
+                if json_match:
+                    result_text = json_match.group(1)
+            except:
+                pass
+            
+            # Пытаемся распарсить JSON
+            result = json.loads(result_text)
+            
             passed = result.get("passed", False)
             feedback = result.get("feedback", "")
+            better_example = result.get("better_example", "")
+            
+            # Если есть пример лучшего варианта, добавляем его в обратную связь
+            if better_example and not feedback.endswith(better_example):
+                feedback = f"{feedback}\n\nВариант перефразирования: {better_example}"
+            
+            # Если нет обратной связи, добавляем стандартную
+            if not feedback:
+                if passed:
+                    feedback = "Отлично! Вы успешно перефразировали предложение без использования стоп-слова."
+                else:
+                    feedback = f"В вашем ответе что-то не так. Попробуйте так: {better_example or 'найти источник этой информации'}"
             
             return passed, feedback
-        except json.JSONDecodeError:
-            logger.error(f"Не удалось распарсить ответ API: {response.text}")
-            raise Exception("Некорректный формат ответа от API")
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Не удалось распарсить ответ API: {response.text}, ошибка: {e}")
+            raise Exception("Ошибка при анализе ответа")
             
     except Exception as e:
         logger.error(f"Ошибка при проверке перефразирования через AI: {e}")
-        # Даже в случае ошибки, предоставляем простой ответ без использования шаблонов
-        if stopword.get('word', '').lower() in rephrased_sentence.lower():
-            return False, f"Ваш ответ все еще содержит стоп-слово '{stopword.get('word', '')}'. Попробуйте перефразировать предложение, полностью избегая этого слова."
-        else:
-            return True, "Ваш ответ принят. Вы успешно избежали использования стоп-слова."
+        raise Exception(f"Не удалось проверить ответ: {e}")
 
 # Load API key on module import
 load_api_key()
