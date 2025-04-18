@@ -360,127 +360,54 @@ async def verify_stopword_rephrasing(original_sentence, rephrased_sentence, stop
 
 async def generate_ai_stopword_sentence(stopword_data):
     """Генерирует предложение с использованием стоп-слова через AI"""
-    try:
-        # Получаем API URL из env
-        api_url = os.getenv("CHATGPT_API_KEY")
-        
-        if not api_url:
-            logger.error("CHATGPT_API_KEY не найден, невозможно использовать AI")
-            raise Exception("API ключ не найден")
-        
-        # Составляем список стоп-слов для промпта
-        all_stopwords = get_stopwords_data()
-        stopwords_list = "\n".join([f"- {sw.get('word', '')}: {sw.get('description', '')}" for sw in all_stopwords])
-        
-        # Подготовка промпта для AI
-        prompt = f"""
-        Ты - злой подрывник компании, тебя поставили в конкурирующую компанию, чтобы ты разрушил дух рабочих.
-        Вот стоп-слова этой компании:
-        {stopwords_list}
-        
-        Твоя задача - сгенерировать реалистичное предложение, в котором используется стоп-слово: "{stopword_data.get('word', '')}".
-        
-        Важные требования:
-        1. Предложение должно быть реалистичным, которое может сказать сотрудник в разговоре
-        2. Предложение ОБЯЗАТЕЛЬНО должно содержать стоп-слово "{stopword_data.get('word', '')}" в точно такой же форме
-        3. Предложение должно быть прямой речью, как в живом диалоге
-        4. НЕ используй сложные конструкции с вложенными цитатами
-        5. НЕ начинай предложение с фраз типа "Мне нужно..." или "Коллега сказал..."
-        
-        Примеры хороших предложений:
-        - "Какая тебе разница, когда я закончу этот отчет?"
-        - "Ты можешь мне помочь с этой задачей?"
-        - "Наверное, мы не успеем закончить проект в срок."
-        
-        Выдай ТОЛЬКО САМО ПРЕДЛОЖЕНИЕ без кавычек, объяснений или дополнительного контекста.
-        """
-        
-        # Отправляем запрос к API
-        response = requests.post(api_url, json={
-            "text": stopword_data.get('word', ''),
-            "prompt": prompt,
-            "format": "text"
-        }, timeout=15)
-        
-        # Обрабатываем ответ
-        if response.status_code != 200:
-            logger.error(f"Ошибка при генерации предложения со стоп-словом: {response.status_code}, {response.text}")
-            # Повторяем запрос с упрощенным промптом
-            retry_prompt = f"""
-            Сгенерируй одно короткое предложение, которое обязательно содержит фразу "{stopword_data.get('word', '')}".
-            Например: "Какая тебе разница, во сколько я приду на работу?" для стоп-слова "Какая тебе разница".
-            Выдай только предложение, без кавычек и пояснений.
-            """
-            retry_response = requests.post(api_url, json={
-                "text": "Создай предложение",
-                "prompt": retry_prompt,
-                "format": "text"
-            }, timeout=15)
-            
-            if retry_response.status_code != 200:
-                raise Exception(f"Повторная ошибка API: {retry_response.status_code}")
-            
-            return extract_sentence_from_response(retry_response.text)
-        
-        # Получаем сгенерированное предложение
-        ai_sentence = extract_sentence_from_response(response.text)
-        
-        # Проверяем, что предложение содержит стоп-слово
-        if stopword_data.get('word', '').lower() not in ai_sentence.lower():
-            logger.warning(f"AI не включил стоп-слово '{stopword_data.get('word', '')}' в предложение, повторная попытка")
-            
-            # Более строгий промпт для повторной попытки
-            prompt_retry = f"""
-            Создай ОДНО КОРОТКОЕ предложение, которое ОБЯЗАТЕЛЬНО включает стоп-слово "{stopword_data.get('word', '')}" в точности как указано.
-            
-            Примеры:
-            - Стоп-слово "Какая разница": "Какая разница, кто выполнит эту работу?"
-            - Стоп-слово "Помоги": "Помоги мне с этим отчетом, пожалуйста."
-            
-            Важно: предложение должно быть реалистичным, как в обычном разговоре между коллегами.
-            Важно: предложение ДОЛЖНО содержать фразу "{stopword_data.get('word', '')}" в точности.
-            
-            Выдай только само предложение без кавычек и объяснений.
-            """
-            
-            # Повторная попытка с более строгим промптом
-            retry_response = requests.post(api_url, json={
-                "text": "Создай предложение со стоп-словом",
-                "prompt": prompt_retry,
-                "format": "text"
-            }, timeout=15)
-            
-            if retry_response.status_code == 200:
-                return extract_sentence_from_response(retry_response.text)
-            else:
-                # Если и повторный запрос не удался, делаем еще одну попытку с простейшим промптом
-                final_prompt = f'Напиши одно предложение со словом "{stopword_data.get("word", "")}".'
-                final_response = requests.post(api_url, json={
-                    "text": "Последняя попытка",
-                    "prompt": final_prompt,
-                    "format": "text"
-                }, timeout=10)
-                
-                return extract_sentence_from_response(final_response.text)
-        
-        # Возвращаем предложение без дополнительного форматирования
-        return ai_sentence
-        
-    except Exception as e:
-        logger.error(f"Ошибка при генерации предложения через AI: {e}")
-        # Последняя попытка с самым простым запросом
-        try:
-            simple_prompt = f'Напиши предложение с фразой "{stopword_data.get("word", "")}".'
-            last_response = requests.post(api_url, json={
-                "text": "SOS запрос",
-                "prompt": simple_prompt,
-                "format": "text"
-            }, timeout=10)
-            
-            return extract_sentence_from_response(last_response.text)
-        except:
-            # В случае полного отказа, просто возвращаем стоп-слово
-            return stopword_data.get('word', '')
+    # Получаем API URL из env
+    api_url = os.getenv("CHATGPT_API_KEY")
+    
+    # Составляем список стоп-слов для промпта
+    all_stopwords = get_stopwords_data()
+    
+    # Стоп-слово, для которого генерируем предложение
+    stopword_word = stopword_data.get('word', '')
+    stopword_desc = stopword_data.get('description', '')
+    
+    logger.info(f"Генерируем предложение для стоп-слова: {stopword_word}")
+    
+    # Подготовка промпта для AI - максимально упрощенный
+    prompt = f"""
+    Твоя задача - сгенерировать естественное предложение, в котором обязательно используется стоп-слово "{stopword_word}".
+    
+    ПРАВИЛА:
+    1. Предложение должно быть реалистичным, как в обычном разговоре между сотрудниками компании
+    2. Предложение ДОЛЖНО содержать ТОЧНО стоп-слово "{stopword_word}" в ИСХОДНОЙ форме 
+    3. НЕ используй кавычки в начале и конце предложения
+    4. НЕ начинай предложение с фраз "например", "коллега сказал", "мне нужно" и т.п.
+    5. Предложение должно звучать естественно, как прямая речь
+    
+    Примеры хороших предложений:
+    - "Какая разница, во сколько начинается собрание?" (для стоп-слова "Какая разница")
+    - "Я не хочу помогать новому сотруднику с отчетом." (для стоп-слова "Не хочу")
+    - "Мне надоело постоянно исправлять твои ошибки." (для стоп-слова "Надоело")
+    
+    ВАЖНО: Верни ТОЛЬКО текст предложения без каких-либо пояснений, кавычек или JSON.
+    """
+    
+    # Отправляем запрос к API
+    response = requests.post(api_url, json={
+        "text": stopword_word,
+        "prompt": prompt,
+        "format": "text"
+    }, timeout=15)
+    
+    # Получаем сгенерированное предложение
+    ai_sentence = extract_sentence_from_response(response.text)
+    
+    # Удаляем кавычки, если они есть
+    ai_sentence = ai_sentence.strip('"\'`')
+    
+    # Логируем финальное предложение
+    logger.info(f"Сгенерировано предложение: {ai_sentence}")
+    
+    return ai_sentence
 
 def extract_sentence_from_response(response_text):
     """Извлекает чистый текст предложения из ответа API, который может быть в JSON"""
@@ -520,103 +447,83 @@ def extract_sentence_from_response(response_text):
 
 async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, stopword):
     """Проверить корректность перефразированного предложения без стоп-слова используя AI"""
-    try:
-        api_url = os.getenv("CHATGPT_API_KEY")
-        if not api_url:
-            logger.error("CHATGPT_API_KEY не найден")
-            raise Exception("API ключ не найден")
-        
-        # Получаем все стоп-слова для контекста
-        all_stopwords = get_stopwords_data()
-        stopwords_list = "\n".join([f"- {sw.get('word', '')}: {sw.get('description', '')}" for sw in all_stopwords])
-        
-        # Логируем то, что проверяем для отладки
-        logger.info(f"Проверка ответа: Исходное='{original_sentence}', Ответ='{rephrased_sentence}', Стоп-слово='{stopword.get('word', '')}'")
-        
-        # Создаем промпт для AI с более мягкими требованиями
-        prompt = f"""
-        Ты - дружелюбный руководитель компании. Твоя задача - проверить, как пользователь перефразировал предложение, убрав стоп-слово.
-        
-        Исходное предложение со стоп-словом: "{original_sentence}"
-        Стоп-слово, которое нужно было убрать: "{stopword.get('word', '')}"
-        Ответ пользователя (перефразированное предложение): "{rephrased_sentence}"
-        
-        Список стоп-слов компании:
-        {stopwords_list}
-        
-        ВАЖНО: Будь ЛОЯЛЬНЫМ к ответу пользователя. Если смысл сохранен и стоп-слово убрано, то ответ ПРАВИЛЬНЫЙ, даже если форма предложения сильно изменена.
-        
-        Критерии проверки (по приоритету):
-        1. В ответе НЕТ стоп-слова "{stopword.get('word', '')}" - это ГЛАВНОЕ требование
-        2. В целом смысл сообщения сохранен (допускаются изменения времени, деталей, формулировок)
-        3. Ответ соответствует деловому стилю общения
-        
-        Ответь ОБЯЗАТЕЛЬНО в формате JSON:
-        {{
-          "passed": true/false,
-          "feedback": "подробный комментарий с объяснением",
-          "better_example": "пример лучшего варианта перефразирования (ОБЯЗАТЕЛЬНО указывай, даже если ответ правильный)"
-        }}
-        
-        Если ответ правильный, похвали пользователя.
-        Если ответ неправильный, ОБЯЗАТЕЛЬНО объясни конкретную причину и предложи лучший вариант.
-        """
-        
-        # Отправляем запрос к API
-        response = requests.post(api_url, json={
-            "text": rephrased_sentence,
-            "prompt": prompt,
-            "format": "json"
-        }, timeout=15)
-        
-        # Обрабатываем ответ
-        if response.status_code != 200:
-            logger.error(f"Ошибка при проверке ответа: {response.status_code}, {response.text}")
-            raise Exception(f"Ошибка API: {response.status_code}")
-        
-        # Пытаемся распарсить ответ
-        try:
-            # Логируем полный ответ API для отладки
-            logger.info(f"Ответ API на проверку: {response.text}")
-            
-            # Если ответ в текстовом формате, пытаемся извлечь JSON
-            result_text = response.text
-            
-            try:
-                # Пытаемся найти JSON в тексте с помощью регулярного выражения
-                json_match = re.search(r'({.*})', result_text)
-                if json_match:
-                    result_text = json_match.group(1)
-            except:
-                pass
-            
-            # Пытаемся распарсить JSON
-            result = json.loads(result_text)
-            
-            passed = result.get("passed", False)
-            feedback = result.get("feedback", "")
-            better_example = result.get("better_example", "")
-            
-            # Если есть пример лучшего варианта, добавляем его в обратную связь
-            if better_example and not feedback.endswith(better_example):
-                feedback = f"{feedback}\n\nВариант перефразирования: {better_example}"
-            
-            # Если нет обратной связи, добавляем стандартную
-            if not feedback:
-                if passed:
-                    feedback = "Отлично! Вы успешно перефразировали предложение без использования стоп-слова."
-                else:
-                    feedback = f"В вашем ответе что-то не так. Попробуйте так: {better_example or 'найти источник этой информации'}"
-            
-            return passed, feedback
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Не удалось распарсить ответ API: {response.text}, ошибка: {e}")
-            raise Exception("Ошибка при анализе ответа")
-            
-    except Exception as e:
-        logger.error(f"Ошибка при проверке перефразирования через AI: {e}")
-        raise Exception(f"Не удалось проверить ответ: {e}")
+    api_url = os.getenv("CHATGPT_API_KEY")
+    
+    # Получаем все стоп-слова для контекста
+    all_stopwords = get_stopwords_data()
+    
+    # Получаем данные о стоп-слове
+    stopword_text = stopword.get('word', '').strip()
+    stopword_desc = stopword.get('description', '')
+    
+    # Логируем то, что проверяем для отладки
+    logger.info(f"Проверка ответа: Исходное='{original_sentence}', Ответ='{rephrased_sentence}', Стоп-слово='{stopword_text}'")
+    
+    # Создаем промпт для AI
+    prompt = f"""
+    Ты - специалист по деловой коммуникации. Твоя задача - проверить, правильно ли пользователь перефразировал предложение, избегая стоп-слова.
+    
+    Исходное предложение со стоп-словом: "{original_sentence}"
+    Стоп-слово, которое нужно было избегать: "{stopword_text}"
+    Ответ пользователя (перефразированное предложение): "{rephrased_sentence}"
+
+    КРИТЕРИИ ОЦЕНКИ ОТВЕТА:
+    1. В ответе НЕТ стоп-слова "{stopword_text}" и его вариаций.
+    2. ВАЖНО: Ответ должен СОХРАНЯТЬ СМЫСЛ исходного предложения.
+    3. Ответ должен быть связным, логичным и соответствовать деловому стилю.
+    
+    Оцени ответ по ВСЕМ критериям. Ответ считается правильным, ТОЛЬКО если выполнены ВСЕ критерии!
+    
+    ВАЖНО: Если пользователь написал полностью несвязанное предложение или набор символов, 
+    считай ответ НЕПРАВИЛЬНЫМ, даже если там нет стоп-слова.
+    
+    Дай подробную обратную связь.
+    
+    Структура ответа в формате JSON:
+    {{
+      "passed": true/false,
+      "feedback": "Развернутая оценка, объясняющая, почему ответ правильный или неправильный. Если неправильный - четко укажи, что именно не так.",
+      "better_example": "Если пользователь ответил неправильно, предложи лучший вариант перефразирования (БЕЗ использования стоп-слова)."
+    }}
+    """
+    
+    # Отправляем запрос к API
+    response = requests.post(api_url, json={
+        "text": rephrased_sentence,
+        "prompt": prompt,
+        "format": "json"
+    }, timeout=15)
+    
+    # Логируем полный ответ API для отладки
+    logger.info(f"Ответ API на проверку: {response.text}")
+    
+    # Если ответ в текстовом формате, пытаемся извлечь JSON
+    result_text = response.text
+    
+    # Пытаемся найти JSON в тексте с помощью регулярного выражения
+    json_match = re.search(r'({.*})', result_text)
+    if json_match:
+        result_text = json_match.group(1)
+    
+    # Распарсим JSON
+    result = json.loads(result_text)
+    
+    passed = result.get("passed", False)
+    feedback = result.get("feedback", "")
+    better_example = result.get("better_example", "")
+    
+    # Добавляем информацию для отладки
+    debug_info = f"\n\nИсходное: \"{original_sentence}\"\nСтоп-слово: \"{stopword_text}\"\nВаш ответ: \"{rephrased_sentence}\""
+    
+    # Формируем полную обратную связь
+    full_feedback = feedback
+    if better_example and not passed:
+        full_feedback = f"{feedback}\n\nПример лучшего варианта: \"{better_example}\""
+    
+    # Добавляем отладочную информацию
+    full_feedback += debug_info
+    
+    return passed, full_feedback
 
 # Load API key on module import
 load_api_key()
