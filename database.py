@@ -390,3 +390,67 @@ def create_user(user_id, username):
     
     conn.commit()
     conn.close()
+
+def get_metrics():
+    """Get general metrics about user progress through the hiring process"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    # Total users who started the bot
+    cursor.execute('SELECT COUNT(*) FROM users')
+    total_users = cursor.fetchone()[0]
+    
+    # Get all unique test types
+    cursor.execute('SELECT DISTINCT test_type FROM test_submissions')
+    test_types = [row[0] for row in cursor.fetchall()]
+    
+    # Create metrics dictionary
+    metrics = {
+        'total_users': total_users,
+        'test_metrics': {}
+    }
+    
+    # Count users for each test type
+    for test_type in test_types:
+        # Users who took the test
+        cursor.execute('SELECT COUNT(DISTINCT user_id) FROM test_submissions WHERE test_type = ?', (test_type,))
+        took_test = cursor.fetchone()[0]
+        
+        # Users who passed the test
+        cursor.execute('SELECT COUNT(DISTINCT user_id) FROM test_submissions WHERE test_type = ? AND status = "approved"', (test_type,))
+        passed_test = cursor.fetchone()[0]
+        
+        metrics['test_metrics'][test_type] = {
+            'took_test': took_test,
+            'passed_test': passed_test
+        }
+    
+    # Count interview requests
+    cursor.execute('SELECT COUNT(DISTINCT user_id) FROM interview_requests')
+    interview_requests = cursor.fetchone()[0]
+    
+    metrics['interview_requests'] = interview_requests
+    
+    conn.close()
+    return metrics
+
+def send_interview_notification_to_recruiter(user_id, preferred_day, preferred_time):
+    """Get user info and send notification to recruiter database"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    # Get user info
+    cursor.execute('SELECT username, first_name, last_name FROM users WHERE user_id = ?', (user_id,))
+    user_data = cursor.fetchone()
+    conn.close()
+    
+    if user_data:
+        username = user_data[0]
+        return {
+            'user_id': user_id,
+            'username': username,
+            'preferred_day': preferred_day,
+            'preferred_time': preferred_time
+        }
+    
+    return None

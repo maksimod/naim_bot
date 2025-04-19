@@ -37,3 +37,15 @@ if not hasattr(CandidateStates, 'LOGIC_TEST_PREPARE'):
 if not hasattr(CandidateStates, 'LOGIC_TEST_TESTING'):
     setattr(CandidateStates, 'LOGIC_TEST_TESTING', 'logic_test_testing')
     print("Added missing LOGIC_TEST_TESTING state")
+
+# Ensure REVIEW_FEEDBACK is defined in RecruiterStates
+if not hasattr(RecruiterStates, 'REVIEW_FEEDBACK'):
+    # Add the missing state
+    setattr(RecruiterStates, 'REVIEW_FEEDBACK', 13)
+    print("Added missing REVIEW_FEEDBACK state")
+
+# Ensure INTERVIEW_RESPONSE is defined in RecruiterStates
+if not hasattr(RecruiterStates, 'INTERVIEW_RESPONSE'):
+    # Add the missing state
+    setattr(RecruiterStates, 'INTERVIEW_RESPONSE', 14)
+    print("Added missing INTERVIEW_RESPONSE state")

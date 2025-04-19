@@ -852,20 +852,183 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Check if the user has passed at least 3 out of 5 tests
         if passed_tests >= 3:  # More than 50% requirement
-            congratulations_message = (
-                "🎉 Поздравляем! Вы успешно прошли все необходимые этапы и готовы к собеседованию!\n\n"
-                "Наш HR-менеджер свяжется с вами в ближайшее время для назначения даты и времени собеседования.\n\n"
-                "Спасибо за интерес к нашей компании и удачи на собеседовании!\n\n"
-            )
-            message = test_results_message + "\n\n" + congratulations_message
+            # Get interview status to check if user already has a pending request
+            interview_status = db.get_interview_status(user_id)
+            
+            if interview_status and interview_status['status'] == 'pending':
+                # User already has a pending request
+                message = (
+                    f"{test_results_message}\n\n"
+                    "🕒 У вас уже есть ожидающий ответа запрос на собеседование.\n\n"
+                    f"Предпочтительный день: {interview_status['preferred_day']}\n"
+                    f"Предпочтительное время: {interview_status['preferred_time']}\n\n"
+                    "Пожалуйста, дождитесь ответа рекрутера."
+                )
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ]
+            elif interview_status and interview_status['status'] == 'approved':
+                # Interview already approved
+                message = (
+                    f"{test_results_message}\n\n"
+                    "✅ Ваш запрос на собеседование был подтвержден!\n\n"
+                    f"Ответ рекрутера: {interview_status['recruiter_response']}\n\n"
+                    "Хорошей подготовки к собеседованию!"
+                )
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ]
+            elif interview_status and interview_status['status'] == 'rejected':
+                # Interview was rejected, allow to make new request
+                message = (
+                    f"{test_results_message}\n\n"
+                    "🎉 Поздравляем! Вы успешно прошли все необходимые этапы и готовы к собеседованию!\n\n"
+                    "Ваш предыдущий запрос был отклонен:\n"
+                    f"{interview_status['recruiter_response']}\n\n"
+                    "Выберите удобные день и время:"
+                )
+                keyboard = [
+                    [InlineKeyboardButton("Понедельник", callback_data="interview_day_Понедельник")],
+                    [InlineKeyboardButton("Вторник", callback_data="interview_day_Вторник")],
+                    [InlineKeyboardButton("Среда", callback_data="interview_day_Среда")],
+                    [InlineKeyboardButton("Четверг", callback_data="interview_day_Четверг")],
+                    [InlineKeyboardButton("Пятница", callback_data="interview_day_Пятница")],
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ]
+                # Store that we're in interview scheduling mode
+                context.user_data["scheduling_interview"] = True
+            else:
+                # No existing request, show schedule form
+                message = (
+                    f"{test_results_message}\n\n"
+                    "🎉 Поздравляем! Вы успешно прошли все необходимые этапы и готовы к собеседованию!\n\n"
+                    "Выберите удобный для вас день недели:"
+                )
+                keyboard = [
+                    [InlineKeyboardButton("Понедельник", callback_data="interview_day_Понедельник")],
+                    [InlineKeyboardButton("Вторник", callback_data="interview_day_Вторник")],
+                    [InlineKeyboardButton("Среда", callback_data="interview_day_Среда")],
+                    [InlineKeyboardButton("Четверг", callback_data="interview_day_Четверг")],
+                    [InlineKeyboardButton("Пятница", callback_data="interview_day_Пятница")],
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ]
+                # Store that we're in interview scheduling mode
+                context.user_data["scheduling_interview"] = True
         else:
             message = (
                 test_results_message + "\n\n"
                 "К сожалению, вы не прошли необходимое количество тестов для перехода к собеседованию.\n"
                 "Пожалуйста, пройдите оставшиеся тесты и попробуйте снова."
             )
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ]
         
         # Send the message to the user
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                message,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            await update.effective_chat.send_message(
+                message,
+                reply_markup=reply_markup
+            )
+        
+        return CandidateStates.SCHEDULE_INTERVIEW
+    
+    # Handle interview day selection
+    elif query.data.startswith("interview_day_"):
+        selected_day = query.data.replace("interview_day_", "")
+        context.user_data["interview_day"] = selected_day
+        
+        # Show time selection buttons
+        message = f"Вы выбрали день: {selected_day}\n\nТеперь выберите предпочтительное время:"
+        keyboard = [
+            [InlineKeyboardButton("10:00 - 12:00", callback_data="interview_time_10:00 - 12:00")],
+            [InlineKeyboardButton("12:00 - 14:00", callback_data="interview_time_12:00 - 14:00")],
+            [InlineKeyboardButton("14:00 - 16:00", callback_data="interview_time_14:00 - 16:00")],
+            [InlineKeyboardButton("16:00 - 18:00", callback_data="interview_time_16:00 - 18:00")],
+            [InlineKeyboardButton("⬅️ Назад к выбору дня", callback_data="schedule_interview")],
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                message,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            await update.effective_chat.send_message(
+                message,
+                reply_markup=reply_markup
+            )
+        
+        return CandidateStates.SCHEDULE_INTERVIEW
+    
+    # Handle interview time selection
+    elif query.data.startswith("interview_time_"):
+        selected_time = query.data.replace("interview_time_", "")
+        selected_day = context.user_data.get("interview_day", "Не указан")
+        
+        # Save to context temporarily
+        context.user_data["interview_time"] = selected_time
+        
+        # Show confirmation
+        message = (
+            f"Вы выбрали:\n\n"
+            f"День: {selected_day}\n"
+            f"Время: {selected_time}\n\n"
+            f"Подтвердите запрос на собеседование:"
+        )
+        keyboard = [
+            [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_interview_request")],
+            [InlineKeyboardButton("⬅️ Изменить время", callback_data="interview_day_" + selected_day)],
+            [InlineKeyboardButton("⬅️ Изменить день", callback_data="schedule_interview")],
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                message,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            await update.effective_chat.send_message(
+                message,
+                reply_markup=reply_markup
+            )
+        
+        return CandidateStates.SCHEDULE_INTERVIEW
+    
+    # Handle interview request confirmation
+    elif query.data == "confirm_interview_request":
+        user_id = update.effective_user.id
+        selected_day = context.user_data.get("interview_day", "Не указан")
+        selected_time = context.user_data.get("interview_time", "Не указано")
+        
+        # Import handle_interview_request function from candidate_bot
+        from candidate_bot import handle_interview_request
+        
+        # Submit interview request and send notification to recruiter
+        await handle_interview_request(user_id, selected_day, selected_time)
+        
+        # Show confirmation message
+        message = (
+            "✅ Запрос на собеседование успешно отправлен!\n\n"
+            f"День: {selected_day}\n"
+            f"Время: {selected_time}\n\n"
+            "Рекрутер рассмотрит ваш запрос и свяжется с вами. "
+            "Вы получите уведомление, когда запрос будет обработан."
+        )
         keyboard = [
             [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
         ]
@@ -882,6 +1045,14 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message,
                 reply_markup=reply_markup
             )
+        
+        # Clear interview scheduling data
+        if "interview_day" in context.user_data:
+            del context.user_data["interview_day"]
+        if "interview_time" in context.user_data:
+            del context.user_data["interview_time"]
+        if "scheduling_interview" in context.user_data:
+            del context.user_data["scheduling_interview"]
         
         return CandidateStates.MAIN_MENU
     

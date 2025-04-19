@@ -45,6 +45,8 @@ class RecruiterStates(enum.Enum):
     MANAGE_CANDIDATES = 10
     VIEW_CANDIDATE = 11
     REVIEW_TEST = 12  # Добавил для совместимости
+    REVIEW_FEEDBACK = 13  # Добавлено для обработки отзывов на тестовые задания
+    INTERVIEW_RESPONSE = 14  # Добавлено для обработки ответов на запросы интервью
 
 class RegistrationStates(enum.Enum):
     """Состояния для процесса регистрации рекрутера"""
