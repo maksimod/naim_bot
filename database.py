@@ -400,9 +400,42 @@ def get_metrics():
     cursor.execute('SELECT COUNT(*) FROM users')
     total_users = cursor.fetchone()[0]
     
-    # Get all unique test types
+    # Get all unique test types from test_submissions
     cursor.execute('SELECT DISTINCT test_type FROM test_submissions')
-    test_types = [row[0] for row in cursor.fetchall()]
+    submission_test_types = [row[0] for row in cursor.fetchall()]
+    
+    # Get test types from current_test_results in users table
+    cursor.execute('SELECT current_test_results FROM users WHERE current_test_results IS NOT NULL')
+    user_test_results = cursor.fetchall()
+    
+    # Extract unique test types from user_test_results
+    user_test_types = set()
+    for result in user_test_results:
+        if result[0]:
+            try:
+                test_results = json.loads(result[0])
+                for test_type in test_results.keys():
+                    user_test_types.add(test_type)
+            except json.JSONDecodeError:
+                pass
+    
+    # Combine all test types
+    all_test_types = set(submission_test_types) | user_test_types
+    
+    # Add standard test types if they're not already in the list
+    standard_test_types = [
+        'primary_test',
+        'stopwords_test',
+        'where_to_start_test',
+        'logic_test_result',
+        'logic_test',
+        'take_test_result',
+        'practice_test',
+        'interview_prep_test'
+    ]
+    
+    for test_type in standard_test_types:
+        all_test_types.add(test_type)
     
     # Create metrics dictionary
     metrics = {
@@ -411,19 +444,42 @@ def get_metrics():
     }
     
     # Count users for each test type
-    for test_type in test_types:
-        # Users who took the test
-        cursor.execute('SELECT COUNT(DISTINCT user_id) FROM test_submissions WHERE test_type = ?', (test_type,))
-        took_test = cursor.fetchone()[0]
+    for test_type in all_test_types:
+        # Initialize counts
+        took_test = 0
+        passed_test = 0
         
-        # Users who passed the test
-        cursor.execute('SELECT COUNT(DISTINCT user_id) FROM test_submissions WHERE test_type = ? AND status = "approved"', (test_type,))
-        passed_test = cursor.fetchone()[0]
+        # Count users who took/passed test from test_submissions table
+        if test_type in submission_test_types:
+            cursor.execute('SELECT COUNT(DISTINCT user_id) FROM test_submissions WHERE test_type = ?', (test_type,))
+            took_test += cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(DISTINCT user_id) FROM test_submissions WHERE test_type = ? AND status = "approved"', (test_type,))
+            passed_test += cursor.fetchone()[0]
         
-        metrics['test_metrics'][test_type] = {
-            'took_test': took_test,
-            'passed_test': passed_test
-        }
+        # Count users who took/passed test from current_test_results in users table
+        cursor.execute('SELECT user_id, current_test_results FROM users WHERE current_test_results IS NOT NULL')
+        rows = cursor.fetchall()
+        
+        for user_id, result_json in rows:
+            if result_json:
+                try:
+                    test_results = json.loads(result_json)
+                    if test_type in test_results:
+                        # If test is present in user results (has a value), count as took test
+                        took_test += 1
+                        # If test value is True (passed), count as passed test
+                        if test_results[test_type]:
+                            passed_test += 1
+                except json.JSONDecodeError:
+                    pass
+        
+        # Only add to metrics if there's data
+        if took_test > 0:
+            metrics['test_metrics'][test_type] = {
+                'took_test': took_test,
+                'passed_test': passed_test
+            }
     
     # Count interview requests
     cursor.execute('SELECT COUNT(DISTINCT user_id) FROM interview_requests')
