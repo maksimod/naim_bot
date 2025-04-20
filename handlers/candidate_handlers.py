@@ -653,6 +653,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return CandidateStates.MAIN_MENU
 
+    # Admin mode shortcut to interview
+    if context.user_data.get("admin_mode", False) and message_text.lower() == "sobes!":
+        # Force unlock interview stage
+        context.user_data["admin_test_results"] = {
+            "primary_test": True,
+            "where_to_start_test": True,
+            "logic_test_result": True,
+            "take_test_result": True,
+            "interview_prep_test": True
+        }
+        # Return to main menu which will now show interview as unlocked
+        return await send_main_menu(update, context, message="✅ Этап собеседования разблокирован!")
+
     # Обработка ответа в тесте стоп-слов
     if context.user_data.get("awaiting_stopword_answer", False):
         result = await handle_stopword_answer(update, context)
