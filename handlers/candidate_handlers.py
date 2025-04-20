@@ -604,12 +604,12 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 logger.info(f"Answer debug - Correct! Total correct answers: {context.user_data['correct_answers']}")
                 logger.info(f"Answer debug - User selected option {answer_index} which matches correct answer {correct_answer}")
                 # Отправляем сообщение пользователю о правильном ответе
-                await query.message.reply_text("✅ Правильный ответ!")
+                # await query.message.reply_text("✅ Правильный ответ!")
             else:
                 logger.info(f"Answer debug - Incorrect! Expected {correct_answer}, got {answer_index}")
                 logger.info(f"Answer debug - User selected option {answer_index} but correct answer was {correct_answer}")
                 # Отправляем сообщение пользователю о неправильном ответе
-                await query.message.reply_text("❌ Неправильный ответ!")
+                # await query.message.reply_text("❌ Неправильный ответ!")
             
             # Сразу переходим к следующему вопросу без показа правильности ответа
             context.user_data["current_question"] = current_question + 1
@@ -863,7 +863,7 @@ def get_test_time_limit(test_name):
         "primary_test": 40,         # 40 секунд
         "where_to_start_test": 60,  # 1 минута
         "logic_test_result": 1800,  # 30 минут
-        "take_test_result": 300,    # 5 минут
+        "take_test_result": 600,    # 10 минут
     }
     return time_limits.get(test_name, None)  # None означает нет ограничения времени
 
@@ -1040,7 +1040,7 @@ async def begin_stopwords_test(update, context):
         "current_question": 0,
         "correct_answers": 0,
         "start_time": time.time(),
-        "end_time": time.time() + 300  # 5 минут (300 секунд)
+        "end_time": time.time() + 600  # 10 минут
     }
     
     # Начинаем тест
@@ -1082,9 +1082,8 @@ async def send_stopword_question(update, context, edit_message=True):
     message = (
         f"⏱ Осталось времени: {time_str}\n\n"
         f"Вопрос {current_question + 1} из {len(stopwords)}\n\n"
-        f"Перефразируйте предложение, избегая использования стоп-слова:\n\n"
+        f"Перефразируйте предложение, избегая использования стоп-слова (если оно есть):\n\n"
         f"{sentence}\n\n"
-        f"Стоп-слово: {stopword['word']}\n\n"
         f"Введите ваш вариант предложения без стоп-слова:"
     )
     
