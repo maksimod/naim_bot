@@ -29,11 +29,23 @@ def load_test_questions(filename):
             if isinstance(data, dict) and "questions" in data:
                 questions = []
                 for q in data["questions"]:
-                    questions.append({
+                    question_data = {
                         "question": q["question"],
-                        "options": q.get("options", q.get("answers", [])),
-                        "correct_option": q.get("correct_option", q.get("correct_index", q.get("correct_answer", 0)))
-                    })
+                        "options": q.get("options", q.get("answers", []))
+                    }
+                    
+                    # Handle different format of correct answer field
+                    if "correct_answer" in q:
+                        question_data["correct_answer"] = q["correct_answer"]
+                    elif "correct_option" in q:
+                        question_data["correct_option"] = q["correct_option"]
+                    elif "correct_index" in q:
+                        question_data["correct_answer"] = q["correct_index"]
+                    else:
+                        question_data["correct_answer"] = 0
+                        
+                    questions.append(question_data)
+                
                 # Сохраняем информацию о времени, если она есть
                 result = {
                     "questions": questions,
@@ -41,8 +53,29 @@ def load_test_questions(filename):
                 }
                 return result
             elif isinstance(data, list):
-                # Уже в правильном формате или близком к нему
-                return {"questions": data, "time_limit": None}
+                # For list format (like interview_prep_test.json)
+                # Keep original structure but ensure consistent format
+                processed_questions = []
+                for q in data:
+                    question_data = {
+                        "question": q["question"],
+                        "options": q.get("options", q.get("answers", []))
+                    }
+                    
+                    # Handle different format of correct answer field
+                    if "correct_answer" in q:
+                        question_data["correct_answer"] = q["correct_answer"]
+                    elif "correct_option" in q:
+                        question_data["correct_option"] = q["correct_option"]
+                    elif "correct_index" in q:
+                        question_data["correct_answer"] = q["correct_index"]
+                    else:
+                        question_data["correct_answer"] = 0
+                        
+                    processed_questions.append(question_data)
+                
+                return {"questions": processed_questions, "time_limit": None}
+            
             return data
     except Exception as e:
         logger.error(f"Error loading test questions from {filename}: {e}")

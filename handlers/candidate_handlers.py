@@ -398,8 +398,16 @@ async def handle_test_completion(update, context):
     if not test_data:
         return await send_main_menu(update, context)
     
+    # Get the questions array from test_data depending on format
+    questions = []
+    if isinstance(test_data, dict) and "questions" in test_data:
+        questions = test_data["questions"]
+    else:
+        questions = test_data
+    
     # Calculate score as a percentage
-    score = (correct_answers / len(test_data)) * 100
+    total_questions = len(questions)
+    score = (correct_answers / total_questions) * 100 if total_questions > 0 else 0
     
     # Determine if user passed (need 70% or higher)
     passed = score >= 70
@@ -441,14 +449,14 @@ async def handle_test_completion(update, context):
         # Текст для успешного прохождения теста
         result_message = (
             f"🎉 Поздравляем! Вы успешно прошли тест!\n\n"
-            f"Правильных ответов: {correct_answers} из {len(test_data)}\n\n"
+            f"Правильных ответов: {correct_answers} из {total_questions}\n\n"
             f"Следующий этап разблокирован. Продолжайте свое путешествие по нашей программе найма!"
         )
     else:
         # Текст для неудачного прохождения теста
         result_message = (
             f"❌ Результат теста: не пройден.\n\n"
-            f"Правильных ответов: {correct_answers} из {len(test_data)}\n\n"
+            f"Правильных ответов: {correct_answers} из {total_questions}\n\n"
             f"Однако, следующий этап все равно разблокирован. Вы можете продолжить, но рекомендуем еще раз просмотреть материалы."
         )
     
@@ -564,22 +572,44 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             answer_index = int(query.data.split('_')[1])
             question = questions[current_question]
             
-            # Используем только correct_answer из файла теста
-            # Если correct_answer отсутствует, используем 0 как значение по умолчанию
-            correct_answer = question.get('correct_answer', question.get('correct_option', 0))
-            
+            # Support both correct_answer and correct_option formats
+            # The field may contain either numeric index or string value
+            correct_answer = None
+            if 'correct_answer' in question:
+                correct_answer = question['correct_answer']
+            elif 'correct_option' in question:
+                correct_answer = question['correct_option']
+            else:
+                # Default to first option if no correct answer is specified
+                correct_answer = 0
+                
+            # Convert to int if it's a string number
+            if isinstance(correct_answer, str) and correct_answer.isdigit():
+                correct_answer = int(correct_answer)
+                
             # Отладочный вывод для диагностики
             logger.info(f"Answer debug - Question: {question['question']}")
             logger.info(f"Answer debug - Available fields: {list(question.keys())}")
             logger.info(f"Answer debug - correct_answer value: {correct_answer}")
             logger.info(f"Answer debug - user selected: {answer_index}")
+            logger.info(f"Answer debug - options: {question.get('options', question.get('answers', []))}")
             
             # Проверяем, совпадает ли выбранный ответ с правильным
+            # В файле теста индексы 0-based, а в кнопках 1-based, поэтому сравниваем напрямую
             is_correct = answer_index == correct_answer
             
             if is_correct:
                 # Increment correct answers count
                 context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
+                logger.info(f"Answer debug - Correct! Total correct answers: {context.user_data['correct_answers']}")
+                logger.info(f"Answer debug - User selected option {answer_index} which matches correct answer {correct_answer}")
+                # Отправляем сообщение пользователю о правильном ответе
+                await query.message.reply_text("✅ Правильный ответ!")
+            else:
+                logger.info(f"Answer debug - Incorrect! Expected {correct_answer}, got {answer_index}")
+                logger.info(f"Answer debug - User selected option {answer_index} but correct answer was {correct_answer}")
+                # Отправляем сообщение пользователю о неправильном ответе
+                await query.message.reply_text("❌ Неправильный ответ!")
             
             # Сразу переходим к следующему вопросу без показа правильности ответа
             context.user_data["current_question"] = current_question + 1
