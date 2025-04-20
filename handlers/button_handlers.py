@@ -216,6 +216,20 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CandidateStates.WHERE_TO_START
     
     elif query.data == "where_to_start_test":
+        # Проверяем, проходил ли пользователь уже этот тест
+        user_id = update.effective_user.id
+        user_test_results = db.get_user_test_results(user_id)
+        
+        # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
+        if "where_to_start_test" in user_test_results:
+            await query.edit_message_text(
+                "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+            return CandidateStates.MAIN_MENU
+        
         # Show warning before starting the test
         warning_message = (
             "⚠️ <b>ВНИМАНИЕ!</b> ⚠️\n\n" +
