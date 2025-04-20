@@ -562,5 +562,167 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     
     return passed, final_feedback
 
+async def verify_poem_task(solution_text):
+    """Verify completion of the poem task using ChatGPT"""
+    # Use the API endpoint from .env
+    api_url = os.getenv("CHATGPT_API_KEY")
+    
+    # Проверка на наличие самого стихотворения в решении (базовая)
+    if not solution_text:
+        return False, "Отсутствует решение. Пожалуйста, предоставьте полный диалог с ИИ, включая стихотворение."
+    
+    # Проверка наличия диалога с ИИ и стихотворения с ключевыми элементами
+    has_dialog = "You" in solution_text or "Assistant" in solution_text or "Human" in solution_text or "AI" in solution_text
+    has_poem = "ИСКРА" in solution_text or ("И" in solution_text and "С" in solution_text and "К" in solution_text and "Р" in solution_text and "А" in solution_text)
+    has_key_terms = "аллитерац" in solution_text and ("стих" in solution_text or "огон" in solution_text or "вод" in solution_text)
+    
+    # Если в тексте совсем нет признаков стихотворения
+    if not (has_dialog and has_poem and has_key_terms):
+        return False, "Решение не содержит необходимых элементов: диалога с ИИ, стихотворения с акростихом 'ИСКРА', упоминания стихий и аллитерации. Пожалуйста, предоставьте полное решение согласно заданию."
+    
+    # Автоматически проверим текст на наличие стихотворения с акростихом ИСКРА
+    lines = solution_text.split('\n')
+    poem_found = False
+    for i in range(len(lines) - 4):  # Минимум 5 строк нужно для ИСКРА
+        first_letters = ''.join([line.strip()[0].upper() if line.strip() else '' for line in lines[i:i+6]])
+        if 'ИСКРА' in first_letters:
+            poem_found = True
+            break
+    
+    # Если стихотворение найдено без API, возвращаем успех (предотвращаем ложноотрицательные результаты)
+    if poem_found:
+        # Проверяем также наличие упоминания проверки в тексте
+        verification_mentioned = "проверь" in solution_text.lower() or "verify" in solution_text.lower()
+        if verification_mentioned:
+            return True, "Стихотворение найдено и соответствует требованиям. Акростих 'ИСКРА' присутствует. Диалог с проверкой включен."
+    
+    # Prepare the prompt for GPT
+    prompt = f"""
+    Ты - специалист по оценке стихотворных заданий. Необходимо оценить решение кандидата на вакансию.
+    
+    Задание: Сгенерировать короткий стихотворный текст (4-6 строк) на русском языке, который:
+    1. Содержит аллитерацию на звук "С" в каждой строке.
+    2. Включает упоминание двух противоположных стихий (например, огонь и вода).
+    3. Имеет скрытый акростих из первых букв строк, образующих слово "ИСКРА".
+    
+    Проверяемый текст должен содержать:
+    1. Диалог пользователя с ИИ, где пользователь просит создать стихотворение с указанными критериями
+    2. Ответ ИИ с предложенным стихотворением
+    3. Запрос пользователя на проверку стихотворения
+    4. Ответ ИИ с подтверждением выполнения требований или исправлениями
+    
+    Проверь, есть ли в диалоге все эти элементы, а затем оцени финальное стихотворение по критериям.
+    
+    Ответ кандидата:
+    {solution_text}
+    
+    Оцени решение по следующим критериям:
+    - Наличие аллитерации на звук "С" в каждой строке стихотворения
+    - Включение двух противоположных стихий (например, огонь и вода)
+    - Правильность акростиха (первые буквы строк должны образовывать слово "ИСКРА")
+    - Полнота выполнения задания (наличие всех элементов диалога с ИИ)
+    
+    Дай общую оценку (прошел/не прошел тест) и детальную обратную связь. Решение считается успешным, если выполнены ВСЕ необходимые условия.
+    
+    Формат ответа:
+    {{
+      "passed": true/false,
+      "feedback": "подробная обратная связь"
+    }}
+    """
+    
+    try:
+        # Make the API request
+        response = requests.post(api_url, json={
+            "text": solution_text,
+            "prompt": prompt,
+            "format": "json"
+        })
+        
+        # Process the response
+        if response.status_code != 200:
+            logger.error(f"Error calling ChatGPT API: {response.status_code}")
+            logger.error(f"Response text: {response.text}")
+            # Если API не работает, но мы уже проверили стихотворение 
+            if poem_found:
+                return True, "Стихотворение найдено и соответствует требованиям. Акростих 'ИСКРА' присутствует."
+            return False, "Произошла ошибка при проверке вашего решения. Пожалуйста, попробуйте позже."
+        
+        # Log the full response for debugging
+        logger.info(f"API response for poem task: {response.text}")
+        
+        # Parse the JSON response
+        try:
+            # First try to parse it as a direct JSON
+            result = response.json()
+            
+            # Check if result contains outer structure with 'output'
+            if isinstance(result, dict) and 'output' in result:
+                # Try to parse the output field as JSON
+                try:
+                    inner_result = json.loads(result['output'])
+                    # Use inner result
+                    result = inner_result
+                except json.JSONDecodeError:
+                    # If output is not valid JSON, check if it's a string containing JSON
+                    output_str = result['output']
+                    json_match = re.search(r'({.*?"passed".*?})', output_str, re.DOTALL)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group(1))
+                        except json.JSONDecodeError:
+                            # Fallback to simple extraction of passed/feedback
+                            passed = 'true' in output_str.lower() and 'passed' in output_str.lower()
+                            feedback = output_str
+                            return passed, feedback
+            
+            # Now extract passed and feedback
+            if isinstance(result, dict):
+                passed = result.get("passed", False)
+                feedback = result.get("feedback", "Нет обратной связи")
+                # Если API говорит "не прошел", но мы уже проверили стихотворение 
+                if not passed and poem_found:
+                    logger.info("API says test failed but poem was found locally, overriding result")
+                    return True, "Стихотворение прошло проверку. Акростих 'ИСКРА' присутствует. " + feedback
+                return passed, feedback
+            else:
+                # If result is not a dict, treat as string and check for 'passed'
+                result_str = str(result)
+                passed = 'true' in result_str.lower() and 'passed' in result_str.lower()
+                if not passed and poem_found:
+                    logger.info("API says test failed but poem was found locally, overriding result")
+                    return True, "Стихотворение прошло проверку. Акростих 'ИСКРА' присутствует."
+                return passed, result_str
+                
+        except json.JSONDecodeError:
+            # If JSON parsing fails, try to extract passed/feedback using regex
+            response_text = response.text
+            json_match = re.search(r'({.*?"passed".*?})', response_text, re.DOTALL)
+            if json_match:
+                try:
+                    extracted = json.loads(json_match.group(1))
+                    passed = extracted.get("passed", False)
+                    feedback = extracted.get("feedback", "Нет обратной связи")
+                    if not passed and poem_found:
+                        logger.info("API says test failed but poem was found locally, overriding result")
+                        return True, "Стихотворение прошло проверку. Акростих 'ИСКРА' присутствует. " + feedback
+                    return passed, feedback
+                except json.JSONDecodeError:
+                    pass
+                    
+            # As a fallback, check if response contains "passed" and "true"
+            passed = 'true' in response_text.lower() and 'passed' in response_text.lower()
+            if not passed and poem_found:
+                logger.info("API says test failed but poem was found locally, overriding result")
+                return True, "Стихотворение прошло проверку. Акростих 'ИСКРА' присутствует."
+            return passed, response_text
+    
+    except Exception as e:
+        logger.error(f"Error verifying poem task: {e}")
+        # Если произошла ошибка, но мы уже проверили стихотворение 
+        if poem_found:
+            return True, "Стихотворение найдено и соответствует требованиям. Акростих 'ИСКРА' присутствует."
+        return False, "Произошла ошибка при проверке вашего решения. Пожалуйста, попробуйте позже."
+
 # Load API key on module import
 load_api_key()

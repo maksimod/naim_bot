@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 import database as db
 from config import CandidateStates
 from utils.helpers import load_text_content, load_test_questions, get_stopwords_data
-from utils.chatgpt_helpers import verify_test_completion, generate_ai_stopword_sentence, verify_stopword_rephrasing_ai
+from utils.chatgpt_helpers import verify_test_completion, generate_ai_stopword_sentence, verify_stopword_rephrasing_ai, verify_poem_task
 
 logger = logging.getLogger(__name__)
 
@@ -640,8 +640,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # Verify the solution using ChatGPT
-            passed, feedback = await verify_test_completion(message_text)
+            # Проверяем решение на основе стихотворного задания с ИСКРА
+            logger.info(f"Verifying poem task solution from user {user_id}")
+            passed, feedback = await verify_poem_task(message_text)
+            logger.info(f"Poem task verification result: passed={passed}, feedback length={len(feedback)}")
             
             # In admin mode, save to context.user_data instead of database
             if admin_mode:
