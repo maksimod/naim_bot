@@ -2,13 +2,20 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+# Load PostgreSQL configuration
+load_dotenv('postgres.env')
 
 # Bot tokens
 CANDIDATE_BOT_TOKEN = os.getenv('CANDIDATE_BOT_TOKEN')
 RECRUITER_BOT_TOKEN = os.getenv('RECRUITER_BOT_TOKEN')
 
-# Database configuration
-DATABASE_NAME = 'hiring_bot.db'
+# PostgreSQL database configuration
+DB_HOST = os.getenv("HOST")
+DB_PORT = os.getenv("PORT")
+DB_NAME = os.getenv("DATABASE")
+DB_USER = os.getenv("USER")
+DB_PASSWORD = os.getenv("PASSWORD")
+BOT_PREFIX = os.getenv("BOT_PREFIX", "naim_bot_")
 
 # States for the FSM (Finite State Machine)
 class CandidateStates:

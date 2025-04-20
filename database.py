@@ -1,17 +1,33 @@
-import sqlite3
+import psycopg2
 import json
-from config import DATABASE_NAME
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, BOT_PREFIX
+
+def get_connection():
+    """Get a connection to the PostgreSQL database"""
+    return psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
+
+def init_database():
+    """Initialize the database tables if they don't exist"""
+    print("Initializing database tables...")
+    init_db()
+    print("Database tables have been initialized.")
 
 def reset_database():
     """Reset the database by dropping all tables and recreating them"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     # Drop all tables if they exist
-    cursor.execute("DROP TABLE IF EXISTS developer_messages")
-    cursor.execute("DROP TABLE IF EXISTS interview_requests")
-    cursor.execute("DROP TABLE IF EXISTS test_submissions")
-    cursor.execute("DROP TABLE IF EXISTS users")
+    cursor.execute(f"DROP TABLE IF EXISTS {BOT_PREFIX}developer_messages")
+    cursor.execute(f"DROP TABLE IF EXISTS {BOT_PREFIX}interview_requests")
+    cursor.execute(f"DROP TABLE IF EXISTS {BOT_PREFIX}test_submissions")
+    cursor.execute(f"DROP TABLE IF EXISTS {BOT_PREFIX}users")
     
     conn.commit()
     conn.close()
@@ -22,13 +38,13 @@ def reset_database():
 
 def init_db():
     """Initialize the database with required tables"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     # Create users table to track progress
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
+    cursor.execute(f'''
+    CREATE TABLE IF NOT EXISTS {BOT_PREFIX}users (
+        user_id BIGINT PRIMARY KEY,
         username TEXT,
         first_name TEXT,
         last_name TEXT,
@@ -39,43 +55,43 @@ def init_db():
     ''')
     
     # Create table for test submissions
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS test_submissions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
+    cursor.execute(f'''
+    CREATE TABLE IF NOT EXISTS {BOT_PREFIX}test_submissions (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
         test_type TEXT,
         submission_data TEXT,
         status TEXT DEFAULT 'pending',
         feedback TEXT,
         submission_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
+        FOREIGN KEY (user_id) REFERENCES {BOT_PREFIX}users(user_id)
     )
     ''')
     
     # Create table for interview scheduling
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS interview_requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
+    cursor.execute(f'''
+    CREATE TABLE IF NOT EXISTS {BOT_PREFIX}interview_requests (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
         preferred_day TEXT,
         preferred_time TEXT,
         status TEXT DEFAULT 'pending',
         recruiter_response TEXT,
         request_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
+        FOREIGN KEY (user_id) REFERENCES {BOT_PREFIX}users(user_id)
     )
     ''')
     
     # Create table for developer messages
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS developer_messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
+    cursor.execute(f'''
+    CREATE TABLE IF NOT EXISTS {BOT_PREFIX}developer_messages (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
         user_name TEXT,
         message TEXT,
         timestamp TIMESTAMP,
         status TEXT DEFAULT 'unread',
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
+        FOREIGN KEY (user_id) REFERENCES {BOT_PREFIX}users(user_id)
     )
     ''')
     
@@ -84,11 +100,11 @@ def init_db():
 
 def register_user(user_id, username, first_name, last_name):
     """Register a new user or update existing user information"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     # Check if user exists
-    cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute(f'SELECT user_id FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
     user = cursor.fetchone()
     
     if not user:
@@ -99,12 +115,12 @@ def register_user(user_id, username, first_name, last_name):
         ])
         
         cursor.execute(
-            'INSERT INTO users (user_id, username, first_name, last_name, unlocked_stages) VALUES (?, ?, ?, ?, ?)',
+            f'INSERT INTO {BOT_PREFIX}users (user_id, username, first_name, last_name, unlocked_stages) VALUES (%s, %s, %s, %s, %s)',
             (user_id, username, first_name, last_name, unlocked_stages)
         )
     else:
         cursor.execute(
-            'UPDATE users SET username = ?, first_name = ?, last_name = ? WHERE user_id = ?',
+            f'UPDATE {BOT_PREFIX}users SET username = %s, first_name = %s, last_name = %s WHERE user_id = %s',
             (username, first_name, last_name, user_id)
         )
     
@@ -113,10 +129,10 @@ def register_user(user_id, username, first_name, last_name):
 
 def get_user_unlocked_stages(user_id):
     """Get the list of unlocked stages for a user"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT unlocked_stages FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute(f'SELECT unlocked_stages FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
     conn.close()
     
@@ -126,10 +142,10 @@ def get_user_unlocked_stages(user_id):
 
 def get_user_test_results(user_id):
     """Get the test results for a user"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT current_test_results FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute(f'SELECT current_test_results FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
     conn.close()
     
@@ -143,11 +159,11 @@ def get_user_test_results(user_id):
 
 def unlock_stage(user_id, stage_name):
     """Unlock a new stage for the user"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     # Get current unlocked stages
-    cursor.execute('SELECT unlocked_stages FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute(f'SELECT unlocked_stages FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
     
     if result and result[0]:
@@ -156,7 +172,7 @@ def unlock_stage(user_id, stage_name):
             unlocked_stages.append(stage_name)
             
             cursor.execute(
-                'UPDATE users SET unlocked_stages = ? WHERE user_id = ?',
+                f'UPDATE {BOT_PREFIX}users SET unlocked_stages = %s WHERE user_id = %s',
                 (json.dumps(unlocked_stages), user_id)
             )
             conn.commit()
@@ -165,16 +181,16 @@ def unlock_stage(user_id, stage_name):
 
 def save_test_submission(user_id, test_type, submission_data):
     """Save a test submission and return the submission ID"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute(
-        'INSERT INTO test_submissions (user_id, test_type, submission_data) VALUES (?, ?, ?)',
+        f'INSERT INTO {BOT_PREFIX}test_submissions (user_id, test_type, submission_data) VALUES (%s, %s, %s) RETURNING id',
         (user_id, test_type, json.dumps(submission_data))
     )
     
     # Get the last inserted ID
-    submission_id = cursor.lastrowid
+    submission_id = cursor.fetchone()[0]
     
     conn.commit()
     conn.close()
@@ -183,11 +199,11 @@ def save_test_submission(user_id, test_type, submission_data):
 
 def update_test_result(user_id, test_name, passed):
     """Update a user's test result"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     # Get current test results
-    cursor.execute('SELECT current_test_results FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute(f'SELECT current_test_results FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
     
     if result:
@@ -203,7 +219,7 @@ def update_test_result(user_id, test_name, passed):
     
     # Save back to database
     cursor.execute(
-        'UPDATE users SET current_test_results = ? WHERE user_id = ?',
+        f'UPDATE {BOT_PREFIX}users SET current_test_results = %s WHERE user_id = %s',
         (json.dumps(test_results), user_id)
     )
     
@@ -212,16 +228,16 @@ def update_test_result(user_id, test_name, passed):
 
 def update_test_submission(submission_id, status, feedback):
     """Update a test submission with recruiter feedback"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute(
-        'UPDATE test_submissions SET status = ?, feedback = ? WHERE id = ?',
+        f'UPDATE {BOT_PREFIX}test_submissions SET status = %s, feedback = %s WHERE id = %s',
         (status, feedback, submission_id)
     )
     
     # Get the user_id and test_type for this submission
-    cursor.execute('SELECT user_id, test_type FROM test_submissions WHERE id = ?', (submission_id,))
+    cursor.execute(f'SELECT user_id, test_type FROM {BOT_PREFIX}test_submissions WHERE id = %s', (submission_id,))
     result = cursor.fetchone()
     
     conn.commit()
@@ -233,40 +249,53 @@ def update_test_submission(submission_id, status, feedback):
 
 def get_pending_submissions():
     """Get all pending test submissions"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute(
-        '''SELECT ts.id, ts.user_id, u.first_name, u.last_name, ts.test_type, ts.submission_data 
-           FROM test_submissions ts 
-           JOIN users u ON ts.user_id = u.user_id 
+        f'''SELECT ts.id, ts.user_id, u.first_name, u.last_name, ts.test_type, ts.submission_data 
+           FROM {BOT_PREFIX}test_submissions ts 
+           JOIN {BOT_PREFIX}users u ON ts.user_id = u.user_id 
            WHERE ts.status = 'pending' 
            ORDER BY ts.submission_date DESC'''
     )
     
-    submissions = [{
-        'id': row[0],
-        'user_id': row[1],
-        'candidate_name': f"{row[2]} {row[3]}",
-        'test_type': row[4],
-        'submission_data': json.loads(row[5]) if row[5] else None
-    } for row in cursor.fetchall()]
+    submissions = []
+    for row in cursor.fetchall():
+        submissions.append({
+            'id': row[0],
+            'user_id': row[1],
+            'candidate_name': f"{row[2] or ''} {row[3] or ''}".strip(),
+            'test_type': row[4],
+            'submission_data': json.loads(row[5]) if row[5] else {}
+        })
     
     conn.close()
     return submissions
 
 def save_interview_request(user_id, preferred_day, preferred_time):
-    """Save an interview request and return the request ID"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    """Save an interview request from a candidate"""
+    conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute(
-        'INSERT INTO interview_requests (user_id, preferred_day, preferred_time) VALUES (?, ?, ?)',
-        (user_id, preferred_day, preferred_time)
-    )
+    # Check if there's an existing pending request
+    cursor.execute(f'SELECT id FROM {BOT_PREFIX}interview_requests WHERE user_id = %s AND status = %s', (user_id, 'pending'))
+    existing = cursor.fetchone()
     
-    # Get the last inserted ID
-    request_id = cursor.lastrowid
+    if existing:
+        # Update existing request
+        cursor.execute(
+            f'UPDATE {BOT_PREFIX}interview_requests SET preferred_day = %s, preferred_time = %s, request_date = CURRENT_TIMESTAMP WHERE id = %s',
+            (preferred_day, preferred_time, existing[0])
+        )
+        request_id = existing[0]
+    else:
+        # Create new request
+        cursor.execute(
+            f'INSERT INTO {BOT_PREFIX}interview_requests (user_id, preferred_day, preferred_time) VALUES (%s, %s, %s) RETURNING id',
+            (user_id, preferred_day, preferred_time)
+        )
+        request_id = cursor.fetchone()[0]
     
     conn.commit()
     conn.close()
@@ -274,17 +303,17 @@ def save_interview_request(user_id, preferred_day, preferred_time):
     return request_id
 
 def update_interview_request(request_id, status, recruiter_response):
-    """Update an interview request with recruiter response"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    """Update an interview request with recruiter feedback"""
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute(
-        'UPDATE interview_requests SET status = ?, recruiter_response = ? WHERE id = ?',
+        f'UPDATE {BOT_PREFIX}interview_requests SET status = %s, recruiter_response = %s WHERE id = %s',
         (status, recruiter_response, request_id)
     )
     
     # Get the user_id for this request
-    cursor.execute('SELECT user_id FROM interview_requests WHERE id = ?', (request_id,))
+    cursor.execute(f'SELECT user_id FROM {BOT_PREFIX}interview_requests WHERE id = %s', (request_id,))
     result = cursor.fetchone()
     
     conn.commit()
@@ -296,55 +325,37 @@ def update_interview_request(request_id, status, recruiter_response):
 
 def get_pending_interview_requests():
     """Get all pending interview requests"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute(
-        '''SELECT ir.id, ir.user_id, u.first_name, u.last_name, u.username, ir.preferred_day, ir.preferred_time 
-           FROM interview_requests ir 
-           JOIN users u ON ir.user_id = u.user_id 
+        f'''SELECT ir.id, ir.user_id, u.first_name, u.last_name, ir.preferred_day, ir.preferred_time 
+           FROM {BOT_PREFIX}interview_requests ir 
+           JOIN {BOT_PREFIX}users u ON ir.user_id = u.user_id 
            WHERE ir.status = 'pending' 
            ORDER BY ir.request_date DESC'''
     )
     
     requests = []
-    
     for row in cursor.fetchall():
-        request_id = row[0]
-        user_id = row[1]
-        first_name = row[2] or ""
-        last_name = row[3] or ""
-        username = row[4]
-        preferred_day = row[5]
-        preferred_time = row[6]
-        
-        # Формируем имя кандидата для отображения
-        candidate_name = f"{first_name} {last_name}".strip()
-        if not candidate_name and username:
-            candidate_name = f"@{username}"
-        elif not candidate_name:
-            candidate_name = f"Пользователь {user_id}"
-        
         requests.append({
-            'id': request_id,
-            'user_id': user_id,
-            'candidate_name': candidate_name,
-            'preferred_day': preferred_day,
-            'preferred_time': preferred_time
+            'id': row[0],
+            'user_id': row[1],
+            'candidate_name': f"{row[2] or ''} {row[3] or ''}".strip(),
+            'preferred_day': row[4],
+            'preferred_time': row[5]
         })
     
     conn.close()
     return requests
 
 def get_test_result(user_id, test_type):
-    """Get the latest test result for a user and test type"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    """Get the result of a specific test for a user"""
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute(
-        '''SELECT status, feedback FROM test_submissions 
-           WHERE user_id = ? AND test_type = ? 
-           ORDER BY submission_date DESC LIMIT 1''',
+        f'SELECT status, feedback FROM {BOT_PREFIX}test_submissions WHERE user_id = %s AND test_type = %s ORDER BY submission_date DESC LIMIT 1',
         (user_id, test_type)
     )
     
@@ -356,13 +367,14 @@ def get_test_result(user_id, test_type):
     return None
 
 def get_interview_status(user_id):
-    """Get the latest interview status for a user"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    """Get the status of a user's interview request"""
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute(
-        '''SELECT status, preferred_day, preferred_time, recruiter_response FROM interview_requests 
-           WHERE user_id = ? 
+        f'''SELECT status, recruiter_response, preferred_day, preferred_time 
+           FROM {BOT_PREFIX}interview_requests 
+           WHERE user_id = %s 
            ORDER BY request_date DESC LIMIT 1''',
         (user_id,)
     )
@@ -373,18 +385,18 @@ def get_interview_status(user_id):
     if result:
         return {
             'status': result[0],
-            'preferred_day': result[1],
-            'preferred_time': result[2],
-            'recruiter_response': result[3]
+            'response': result[1],
+            'preferred_day': result[2],
+            'preferred_time': result[3]
         }
     return None
 
 def user_exists(user_id):
     """Check if a user exists in the database"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute(f'SELECT user_id FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
     conn.close()
     
@@ -392,7 +404,7 @@ def user_exists(user_id):
 
 def create_user(user_id, username):
     """Create a new user in the database with minimal information"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
     # Initial unlocked stages - only first two options are unlocked
@@ -402,7 +414,7 @@ def create_user(user_id, username):
     ])
     
     cursor.execute(
-        'INSERT INTO users (user_id, username, unlocked_stages) VALUES (?, ?, ?)',
+        f'INSERT INTO {BOT_PREFIX}users (user_id, username, unlocked_stages) VALUES (%s, %s, %s)',
         (user_id, username, unlocked_stages)
     )
     
@@ -410,110 +422,92 @@ def create_user(user_id, username):
     conn.close()
 
 def get_metrics():
-    """Get general metrics about user progress through the hiring process"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    """Get recruitment metrics from the database"""
+    conn = get_connection()
     cursor = conn.cursor()
     
-    # Total users who started the bot
-    cursor.execute('SELECT COUNT(*) FROM users')
-    total_users = cursor.fetchone()[0]
+    # Get total number of candidates
+    cursor.execute(f'SELECT COUNT(*) FROM {BOT_PREFIX}users')
+    total_candidates = cursor.fetchone()[0]
     
-    # Get all unique test types from test_submissions
-    cursor.execute('SELECT DISTINCT test_type FROM test_submissions')
-    submission_test_types = [row[0] for row in cursor.fetchall()]
+    # Get number of candidates who completed the primary test
+    cursor.execute(f'''
+        SELECT COUNT(DISTINCT user_id) 
+        FROM {BOT_PREFIX}test_submissions 
+        WHERE test_type = 'primary_test'
+    ''')
+    primary_completions = cursor.fetchone()[0]
     
-    # Get test types from current_test_results in users table
-    cursor.execute('SELECT current_test_results FROM users WHERE current_test_results IS NOT NULL')
-    user_test_results = cursor.fetchall()
+    # Get number of candidates who completed the logic test
+    cursor.execute(f'''
+        SELECT COUNT(DISTINCT user_id) 
+        FROM {BOT_PREFIX}test_submissions 
+        WHERE test_type = 'logic_test'
+    ''')
+    logic_completions = cursor.fetchone()[0]
     
-    # Extract unique test types from user_test_results
-    user_test_types = set()
-    for result in user_test_results:
-        if result[0]:
-            try:
-                test_results = json.loads(result[0])
-                for test_type in test_results.keys():
-                    user_test_types.add(test_type)
-            except json.JSONDecodeError:
-                pass
-    
-    # Combine all test types
-    all_test_types = set(submission_test_types) | user_test_types
-    
-    # Add standard test types if they're not already in the list
-    standard_test_types = [
-        'primary_test',
-        'stopwords_test',
-        'where_to_start_test',
-        'logic_test_result',
-        'logic_test',
-        'take_test_result',
-        'practice_test',
-        'interview_prep_test'
-    ]
-    
-    for test_type in standard_test_types:
-        all_test_types.add(test_type)
-    
-    # Create metrics dictionary
-    metrics = {
-        'total_users': total_users,
-        'test_metrics': {}
-    }
-    
-    # Count users for each test type
-    for test_type in all_test_types:
-        # Initialize counts
-        took_test = 0
-        passed_test = 0
-        
-        # Count users who took/passed test from test_submissions table
-        if test_type in submission_test_types:
-            cursor.execute('SELECT COUNT(DISTINCT user_id) FROM test_submissions WHERE test_type = ?', (test_type,))
-            took_test += cursor.fetchone()[0]
-            
-            cursor.execute('SELECT COUNT(DISTINCT user_id) FROM test_submissions WHERE test_type = ? AND status = "approved"', (test_type,))
-            passed_test += cursor.fetchone()[0]
-        
-        # Count users who took/passed test from current_test_results in users table
-        cursor.execute('SELECT user_id, current_test_results FROM users WHERE current_test_results IS NOT NULL')
-        rows = cursor.fetchall()
-        
-        for user_id, result_json in rows:
-            if result_json:
-                try:
-                    test_results = json.loads(result_json)
-                    if test_type in test_results:
-                        # If test is present in user results (has a value), count as took test
-                        took_test += 1
-                        # If test value is True (passed), count as passed test
-                        if test_results[test_type]:
-                            passed_test += 1
-                except json.JSONDecodeError:
-                    pass
-        
-        # Only add to metrics if there's data
-        if took_test > 0:
-            metrics['test_metrics'][test_type] = {
-                'took_test': took_test,
-                'passed_test': passed_test
-            }
-    
-    # Count interview requests
-    cursor.execute('SELECT COUNT(DISTINCT user_id) FROM interview_requests')
+    # Get number of candidates who requested an interview
+    cursor.execute(f'SELECT COUNT(DISTINCT user_id) FROM {BOT_PREFIX}interview_requests')
     interview_requests = cursor.fetchone()[0]
     
-    metrics['interview_requests'] = interview_requests
+    # Get number of approved interviews
+    cursor.execute(f'''
+        SELECT COUNT(DISTINCT user_id) 
+        FROM {BOT_PREFIX}interview_requests 
+        WHERE status = 'approved'
+    ''')
+    approved_interviews = cursor.fetchone()[0]
+    
+    # Get test pass rates
+    cursor.execute(f'''
+        SELECT test_type, status, COUNT(*) 
+        FROM {BOT_PREFIX}test_submissions 
+        GROUP BY test_type, status
+    ''')
+    
+    test_stats = {}
+    for row in cursor.fetchall():
+        test_type, status, count = row
+        if test_type not in test_stats:
+            test_stats[test_type] = {'passed': 0, 'failed': 0, 'pending': 0}
+        
+        if status in test_stats[test_type]:
+            test_stats[test_type][status] = count
+    
+    # Calculate pass rates and format the results
+    pass_rates = {}
+    for test_type, stats in test_stats.items():
+        total = stats['passed'] + stats['failed']
+        if total > 0:
+            pass_rate = (stats['passed'] / total) * 100
+        else:
+            pass_rate = 0
+        
+        pass_rates[test_type] = {
+            'pass_rate': round(pass_rate, 2),
+            'total_submitted': total,
+            'passed': stats['passed'],
+            'failed': stats['failed'],
+            'pending': stats['pending']
+        }
     
     conn.close()
-    return metrics
+    
+    return {
+        'total_candidates': total_candidates,
+        'primary_test_completions': primary_completions,
+        'logic_test_completions': logic_completions,
+        'interview_requests': interview_requests,
+        'approved_interviews': approved_interviews,
+        'test_stats': pass_rates
+    }
 
 def get_user_info(user_id):
     """Get user information from the database"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT username, first_name, last_name FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute(f'SELECT username, first_name, last_name FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
     conn.close()
     
@@ -530,36 +524,51 @@ def get_user_info(user_id):
         'last_name': None
     }
 
-def send_interview_notification_to_recruiter(user_id, preferred_day, preferred_time):
-    """Get user info and send notification to recruiter database"""
-    conn = sqlite3.connect(DATABASE_NAME)
+def send_developer_message(user_id, user_name, message):
+    """Save a message from a user to the developers"""
+    conn = get_connection()
     cursor = conn.cursor()
     
-    # Get user info
-    cursor.execute('SELECT username, first_name, last_name FROM users WHERE user_id = ?', (user_id,))
-    user_data = cursor.fetchone()
+    cursor.execute(
+        f'INSERT INTO {BOT_PREFIX}developer_messages (user_id, user_name, message, timestamp) VALUES (%s, %s, %s, CURRENT_TIMESTAMP)',
+        (user_id, user_name, message)
+    )
+    
+    conn.commit()
     conn.close()
+
+def get_developer_messages():
+    """Get all unread messages for developers"""
+    conn = get_connection()
+    cursor = conn.cursor()
     
-    if user_data:
-        username = user_data[0]
-        first_name = user_data[1] or ""
-        last_name = user_data[2] or ""
-        
-        # Формируем имя кандидата для отображения
-        user_display_name = f"{first_name} {last_name}".strip()
-        if not user_display_name and username:
-            user_display_name = f"@{username}"
-        elif not user_display_name:
-            user_display_name = f"Пользователь {user_id}"
-        
-        return {
-            'user_id': user_id,
-            'username': username,
-            'first_name': first_name,
-            'last_name': last_name,
-            'display_name': user_display_name,
-            'preferred_day': preferred_day,
-            'preferred_time': preferred_time
-        }
+    cursor.execute(
+        f'SELECT id, user_id, user_name, message, timestamp FROM {BOT_PREFIX}developer_messages WHERE status = %s ORDER BY timestamp DESC',
+        ('unread',)
+    )
     
-    return None
+    messages = []
+    for row in cursor.fetchall():
+        messages.append({
+            'id': row[0],
+            'user_id': row[1],
+            'user_name': row[2],
+            'message': row[3],
+            'timestamp': row[4]
+        })
+    
+    conn.close()
+    return messages
+
+def mark_message_read(message_id):
+    """Mark a developer message as read"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        f'UPDATE {BOT_PREFIX}developer_messages SET status = %s WHERE id = %s',
+        ('read', message_id)
+    )
+    
+    conn.commit()
+    conn.close()

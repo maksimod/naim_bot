@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 # Загрузка переменных окружения из .env
 load_dotenv()
 
+# Загрузка переменных для PostgreSQL из postgres.env
+load_dotenv('postgres.env')
+
 class CandidateStates(enum.Enum):
     """Состояния для бота кандидата"""
     START = 0
@@ -67,5 +70,14 @@ if not CANDIDATE_BOT_TOKEN:
 if not RECRUITER_BOT_TOKEN:
     raise ValueError("RECRUITER_BOT_TOKEN not set in environment variables")
 
-# Database configuration
-DATABASE_NAME = 'hiring_bot.db'
+# PostgreSQL database configuration
+DB_HOST = os.getenv("HOST")
+DB_PORT = os.getenv("PORT")
+DB_NAME = os.getenv("DATABASE")
+DB_USER = os.getenv("USER")
+DB_PASSWORD = os.getenv("PASSWORD")
+BOT_PREFIX = os.getenv("BOT_PREFIX", "naim_bot_")
+
+# Проверка наличия необходимых переменных для подключения к PostgreSQL
+if not all([DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD]):
+    raise ValueError("PostgreSQL connection parameters not set in postgres.env")
