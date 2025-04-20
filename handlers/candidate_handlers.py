@@ -1462,3 +1462,65 @@ async def stopwords_test_timeout(update, context):
         del context.user_data["current_stopword"]
     
     return CandidateStates.MAIN_MENU
+
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the /start command."""
+    user = update.effective_user
+    user_id = user.id
+    
+    # Сохраняем информацию о пользователе в базу данных
+    db.save_user_info(
+        user_id=user_id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name
+    )
+    
+    # Отправляем приветственное сообщение
+    welcome_message = load_text_content("welcome_message.txt")
+    await update.message.reply_text(welcome_message)
+    
+    # Отправляем главное меню
+    return await send_main_menu(update, context)
+
+async def handle_schedule_interview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle interview scheduling."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Получаем информацию о пользователе из базы данных
+    user_id = update.effective_user.id
+    user_info = db.get_user_info(user_id)
+    
+    # Формируем текст с username пользователя
+    username = user_info.get('username', '')
+    if username:
+        user_link = f"@{username}"
+    else:
+        # Если username не указан, используем имя и фамилию
+        first_name = user_info.get('first_name', '')
+        last_name = user_info.get('last_name', '')
+        user_link = f"{first_name} {last_name}".strip() or "Пользователь"
+    
+    # Формируем сообщение с заявкой на собеседование
+    message = (
+        f"📝 Заявка на собеседование:\n\n"
+        f"ID: {user_id}\n"
+        f"Кандидат: {user_link}\n"
+        f"Предпочтительный день: {context.user_data.get('preferred_day', 'Не указан')}\n"
+        f"Предпочтительное время: {context.user_data.get('preferred_time', 'Не указано')}\n\n"
+        f"Для подтверждения нажмите кнопку ниже."
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_interview")],
+        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        text=message,
+        reply_markup=reply_markup
+    )
+    
+    return CandidateStates.SCHEDULE_INTERVIEW

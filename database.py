@@ -300,20 +300,38 @@ def get_pending_interview_requests():
     cursor = conn.cursor()
     
     cursor.execute(
-        '''SELECT ir.id, ir.user_id, u.first_name, u.last_name, ir.preferred_day, ir.preferred_time 
+        '''SELECT ir.id, ir.user_id, u.first_name, u.last_name, u.username, ir.preferred_day, ir.preferred_time 
            FROM interview_requests ir 
            JOIN users u ON ir.user_id = u.user_id 
            WHERE ir.status = 'pending' 
            ORDER BY ir.request_date DESC'''
     )
     
-    requests = [{
-        'id': row[0],
-        'user_id': row[1],
-        'candidate_name': f"{row[2]} {row[3]}",
-        'preferred_day': row[4],
-        'preferred_time': row[5]
-    } for row in cursor.fetchall()]
+    requests = []
+    
+    for row in cursor.fetchall():
+        request_id = row[0]
+        user_id = row[1]
+        first_name = row[2] or ""
+        last_name = row[3] or ""
+        username = row[4]
+        preferred_day = row[5]
+        preferred_time = row[6]
+        
+        # Формируем имя кандидата для отображения
+        candidate_name = f"{first_name} {last_name}".strip()
+        if not candidate_name and username:
+            candidate_name = f"@{username}"
+        elif not candidate_name:
+            candidate_name = f"Пользователь {user_id}"
+        
+        requests.append({
+            'id': request_id,
+            'user_id': user_id,
+            'candidate_name': candidate_name,
+            'preferred_day': preferred_day,
+            'preferred_time': preferred_time
+        })
     
     conn.close()
     return requests
@@ -490,6 +508,28 @@ def get_metrics():
     conn.close()
     return metrics
 
+def get_user_info(user_id):
+    """Get user information from the database"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT username, first_name, last_name FROM users WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    
+    if result:
+        return {
+            'username': result[0],
+            'first_name': result[1],
+            'last_name': result[2]
+        }
+    
+    return {
+        'username': None,
+        'first_name': None,
+        'last_name': None
+    }
+
 def send_interview_notification_to_recruiter(user_id, preferred_day, preferred_time):
     """Get user info and send notification to recruiter database"""
     conn = sqlite3.connect(DATABASE_NAME)
@@ -502,9 +542,22 @@ def send_interview_notification_to_recruiter(user_id, preferred_day, preferred_t
     
     if user_data:
         username = user_data[0]
+        first_name = user_data[1] or ""
+        last_name = user_data[2] or ""
+        
+        # Формируем имя кандидата для отображения
+        user_display_name = f"{first_name} {last_name}".strip()
+        if not user_display_name and username:
+            user_display_name = f"@{username}"
+        elif not user_display_name:
+            user_display_name = f"Пользователь {user_id}"
+        
         return {
             'user_id': user_id,
             'username': username,
+            'first_name': first_name,
+            'last_name': last_name,
+            'display_name': user_display_name,
             'preferred_day': preferred_day,
             'preferred_time': preferred_time
         }

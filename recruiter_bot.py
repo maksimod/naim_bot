@@ -34,9 +34,16 @@ async def send_main_menu(update, context):
 
 # Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start the conversation and show the main menu."""
-    user = update.effective_user
-    await update.message.reply_text(f"Здравствуйте, {user.first_name}! Это бот для рекрутеров.")
+    """Send a message when the command /start is issued."""
+    user_id = update.effective_user.id
+    
+    # Отправляем сообщение с ID пользователя
+    await update.message.reply_text(
+        f"Ваш ID для настройки уведомлений: {user_id}\n\n"
+        "Пожалуйста, скопируйте этот ID и вставьте его в файл .env в переменную ADMIN_USER_ID"
+    )
+    
+    # Показываем главное меню
     return await send_main_menu(update, context)
 
 # Callback query handlers

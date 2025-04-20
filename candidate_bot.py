@@ -26,6 +26,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     user_id = update.effective_user.id
     
+    # Сохраняем информацию о пользователе
+    db.register_user(
+        user_id, 
+        update.effective_user.username,
+        update.effective_user.first_name,
+        update.effective_user.last_name
+    )
+    
     # Проверяем, существует ли пользователь в базе данных
     if not db.user_exists(user_id):
         # Создаем нового пользователя, если его нет
@@ -52,10 +60,14 @@ async def handle_interview_request(user_id, preferred_day, preferred_time):
             from telegram import Bot
             recruiter_bot = Bot(token=RECRUITER_BOT_TOKEN)
             
+            # Получаем информацию для отображения
+            display_name = user_info.get('display_name', f"Пользователь {user_id}")
+            username_display = f" (@{user_info['username']})" if user_info.get('username') else ""
+            
             # Format notification message
             notification = (
                 f"📣 *Новый запрос на собеседование!*\n\n"
-                f"👤 Кандидат: @{user_info['username']}\n"
+                f"👤 Кандидат: {display_name}{username_display}\n"
                 f"📅 Предпочтительный день: {user_info['preferred_day']}\n"
                 f"⏰ Предпочтительное время: {user_info['preferred_time']}\n\n"
                 f"Используйте меню 'Запросы на собеседование' для управления."
