@@ -67,16 +67,24 @@ class RegistrationStates(enum.Enum):
     CITY = 3
     CONFIRM = 4
 
-# Загрузка токенов ботов
-CANDIDATE_BOT_TOKEN = os.getenv("CANDIDATE_BOT_TOKEN")
-RECRUITER_BOT_TOKEN = os.getenv("RECRUITER_BOT_TOKEN")
+# Загрузка токенов ботов в зависимости от режима
+if MODE == "develop":
+    # Используем токены разработки
+    CANDIDATE_BOT_TOKEN = os.getenv("DEV_CANDIDATE_BOT_TOKEN")
+    RECRUITER_BOT_TOKEN = os.getenv("DEV_RECRUITER_BOT_TOKEN")
+    print("Using development bot tokens")
+else:
+    # Используем production токены
+    CANDIDATE_BOT_TOKEN = os.getenv("CANDIDATE_BOT_TOKEN")
+    RECRUITER_BOT_TOKEN = os.getenv("RECRUITER_BOT_TOKEN")
+    print("Using production bot tokens")
 
 # Проверка наличия токенов
 if not CANDIDATE_BOT_TOKEN:
-    raise ValueError("CANDIDATE_BOT_TOKEN not set in environment variables")
+    raise ValueError(f"{'DEV_' if MODE == 'develop' else ''}CANDIDATE_BOT_TOKEN not set in environment variables")
 
 if not RECRUITER_BOT_TOKEN:
-    raise ValueError("RECRUITER_BOT_TOKEN not set in environment variables")
+    raise ValueError(f"{'DEV_' if MODE == 'develop' else ''}RECRUITER_BOT_TOKEN not set in environment variables")
 
 # PostgreSQL database configuration
 DB_HOST = os.getenv("HOST")
