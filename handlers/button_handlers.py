@@ -1,4 +1,6 @@
 import logging
+import os
+import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
 import database as db
@@ -7,6 +9,9 @@ from utils.helpers import load_text_content, load_test_questions
 from utils.chatgpt_helpers import verify_test_completion
 from handlers.candidate_handlers import send_main_menu, send_test_question
 import asyncio
+
+# Добавляем корневую директорию проекта в путь импорта
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = logging.getLogger(__name__)
 

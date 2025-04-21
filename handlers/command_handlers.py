@@ -1,11 +1,15 @@
 import logging
-from telegram import Update
+import os
+import sys
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import database as db
 from config import CandidateStates
 from utils.helpers import load_text_content
 from handlers.candidate_handlers import send_main_menu
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+# Добавляем корневую директорию проекта в путь импорта
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logger = logging.getLogger(__name__)
 

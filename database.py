@@ -1,5 +1,12 @@
 import psycopg2
 import json
+import sys
+import os
+
+# Добавляем текущую директорию в путь импорта
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Импортируем из пакета config
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, BOT_PREFIX, MODE
 
 def get_connection():

@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 import importlib
 import sys
 
+# Добавляем текущую директорию в путь импорта
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # Force reload the config module
 if 'config' in sys.modules:
     del sys.modules['config']

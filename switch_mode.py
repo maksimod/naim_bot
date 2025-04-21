@@ -55,5 +55,10 @@ if __name__ == "__main__":
     
     if result:
         print(f"Для применения изменений перезапустите приложение")
+        
+        # Выводим сообщение о том, как перезапустить боты
+        print("\nЧтобы перезапустить боты, выполните следующие команды:")
+        print("pm2 restart candidate_bot")
+        print("pm2 restart recruiter_bot")
     else:
         sys.exit(1) 

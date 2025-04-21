@@ -1,8 +1,13 @@
 import os
 import json
+import sys
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+
+# Добавляем текущую директорию в путь импорта
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import database as db
 from config_fix import RecruiterStates, RECRUITER_BOT_TOKEN
 

@@ -1,4 +1,6 @@
 import logging
+import os
+import sys
 import asyncio
 import time
 import datetime
@@ -6,6 +8,10 @@ import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
 import database as db
+
+# Добавляем корневую директорию проекта в путь импорта
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import CandidateStates
 from utils.helpers import load_text_content, load_test_questions, get_stopwords_data
 from utils.chatgpt_helpers import verify_test_completion, generate_ai_stopword_sentence, verify_stopword_rephrasing_ai, verify_poem_task

@@ -1,8 +1,13 @@
 import logging
 import os
+import sys
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+
+# Добавляем текущую директорию в путь импорта
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import database as db
 from config import CandidateStates, CANDIDATE_BOT_TOKEN, RECRUITER_BOT_TOKEN
 from handlers.candidate_handlers import (
