@@ -202,177 +202,15 @@ def decode_unicode_string(text):
             logger.warning(f"Failed to decode Unicode: {e}")
             return text
 
-async def verify_test_completion(solution_text):
-    """Verify completion of the test using ChatGPT"""
-    try:
-        # Use the API endpoint from .env
-        api_url = os.getenv("CHATGPT_API_KEY")
-        
-        # Prepare the prompt for GPT
-        prompt = f"""
-        Ты - специалист по оценке тестовых заданий. Необходимо оценить решение кандидата на вакансию.
-        
-        Задание: Разработать план действий для стартапа, планирующего запуск нового продукта на рынок.
-        
-        Ответ кандидата:
-        {solution_text}
-        
-        Оцени решение по шкале от 1 до 10 по следующим критериям:
-        - Полнота охвата всех аспектов запуска продукта (маркетинг, продажи, поддержка)
-        - Реалистичность и практическая применимость плана
-        - Учет возможных рисков и препятствий
-        - Креативность и нестандартный подход
-        - Четкость формулировок и структурированность
-        
-        Дай общую оценку (прошел/не прошел тест) и детальную обратную связь. Решение считается успешным, если получено не менее 7 баллов по каждому критерию.
-        
-        Формат ответа:
-        {{
-          "passed": true/false,
-          "feedback": "подробная обратная связь"
-        }}
-        """
-        
-        # Make the API request
-        response = requests.post(api_url, json={
-            "text": solution_text,
-            "prompt": prompt,
-            "format": "json"
-        })
-        
-        # Process the response
-        if response.status_code != 200:
-            logger.error(f"Error calling ChatGPT API: {response.status_code}")
-            logger.error(f"Response text: {response.text}")
-            # Default response if API call fails
-            return False, "Не удалось проверить ваше решение. Пожалуйста, попробуйте позже."
-        
-        # Parse the JSON response
-        try:
-            result = response.json()
-            passed = result.get("passed", False)
-            feedback = result.get("feedback", "Нет обратной связи")
-            return passed, feedback
-        except json.JSONDecodeError:
-            # If JSON parsing fails, return a default message
-            logger.error(f"Failed to parse API response as JSON: {response.text}")
-            return False, "Не удалось проверить ваше решение. Пожалуйста, попробуйте позже."
-    
-    except Exception as e:
-        logger.error(f"Error verifying solution: {e}")
-        return False, "Произошла ошибка при проверке вашего решения. Пожалуйста, попробуйте позже."
-
-async def verify_stopword_rephrasing(original_sentence, rephrased_sentence, stopword):
-    """Проверить корректность перефразированного предложения без стоп-слова"""
-    try:
-        # Получаем слово из словаря стоп-слова
-        stopword_text = stopword.get("word", "").lower().strip()
-        stopword_desc = stopword.get("description", "").strip()
-        stopword_repl = stopword.get("replacement", "").strip()
-        
-        logger.info(f"Проверка ответа: оригинал = '{original_sentence}', ответ = '{rephrased_sentence}', стоп-слово = '{stopword_text}'")
-        
-        # Если ответ пустой
-        if not rephrased_sentence or not rephrased_sentence.strip():
-            return False, "Ответ не может быть пустым. Пожалуйста, перефразируйте предложение без использования стоп-слова."
-        
-        # Первичная проверка на наличие стоп-слова
-        if stopword_text and stopword_text.lower() in rephrased_sentence.lower():
-            return False, f"Ваш ответ содержит стоп-слово '{stopword_text}'. Попробуйте перефразировать предложение без использования этого слова."
-        
-        # Проверка на оскорбления и ненормативную лексику
-        profanity_words = ["блять", "нахуй", "хуй", "ебать", "сука", "пизда", "долбоеб", "хуйня", "пиздец"]
-        for word in profanity_words:
-            if word in rephrased_sentence.lower():
-                return False, "Ваш ответ содержит ненормативную лексику. Пожалуйста, используйте деловой стиль общения."
-        
-        # Используем API для более сложной проверки
-        try:
-            api_url = os.getenv("CHATGPT_API_KEY")
-            if api_url:
-                # Подготовка данных для запроса
-                prompt = f"""
-                Ты - специалист по деловой коммуникации, проверяющий умение перефразировать предложения, избегая стоп-слов.
-                
-                Исходное предложение: "{original_sentence}"
-                В этом предложении стоп-слово: "{stopword_text}"
-                
-                Перефразированный вариант: "{rephrased_sentence}"
-                
-                Оцени, качественно ли перефразировано предложение:
-                1. Не содержит ли перефразированное предложение указанное стоп-слово
-                2. Сохранен ли смысл исходного предложения
-                3. Соответствует ли ответ деловому стилю общения
-                
-                Ответ дай в формате JSON:
-                {{
-                  "passed": true/false,
-                  "feedback": "конкретная обратная связь что хорошо/плохо и как можно улучшить",
-                  "better_example": "пример лучшего перефразирования, если ответ неправильный"
-                }}
-                """
-                
-                # Отправляем запрос к API
-                response = requests.post(api_url, json={
-                    "text": rephrased_sentence,
-                    "prompt": prompt,
-                    "format": "json"
-                }, timeout=10)
-                
-                # Обрабатываем ответ
-                if response.status_code == 200:
-                    try:
-                        result = response.json()
-                        passed = result.get("passed", False)
-                        feedback = result.get("feedback", "")
-                        better_example = result.get("better_example", "")
-                        
-                        # Формируем полную обратную связь
-                        if better_example and not passed:
-                            feedback = f"{feedback}\n\nПример лучшего варианта: \"{better_example}\""
-                        
-                        return passed, feedback
-                    except:
-                        # Если не удалось распарсить JSON, просто проверяем основное правило
-                        pass
-        except:
-            # При ошибке API продолжаем с базовой проверкой
-            pass
-        
-        # Если AI проверка не сработала, используем базовые правила
-        # Проверка на наличие стоп-слова - это главное правило
-        if stopword_text and stopword_text.lower() in rephrased_sentence.lower():
-            return False, f"Ваш ответ содержит стоп-слово '{stopword_text}'. Попробуйте перефразировать предложение без использования этого слова."
-        
-        # По умолчанию, если прошли все проверки, считаем ответ правильным
-        feedback = f"Отлично! Вы успешно перефразировали предложение, избежав использования стоп-слова '{stopword_text}'."
-        
-        # Добавляем рекомендованную замену, если она есть
-        if stopword_repl:
-            feedback += f" Рекомендуемый вариант замены: '{stopword_repl}'."
-            
-        return True, feedback
-    
-    except Exception as e:
-        logger.error(f"Ошибка при проверке перефразирования: {e}")
-        # При любой ошибке позволяем продолжить тест
-        return True, "Ответ принят. Продолжайте тест."
-
 async def generate_ai_stopword_sentence(stopword_data):
     """Генерирует предложение с использованием стоп-слова через AI"""
-    # Получаем API URL из env
     api_url = os.getenv("CHATGPT_API_KEY")
     
-    # Составляем список стоп-слов для промпта
-    all_stopwords = get_stopwords_data()
-    
-    # Стоп-слово, для которого генерируем предложение
     stopword_word = stopword_data.get('word', '')
     stopword_desc = stopword_data.get('description', '')
     
     logger.info(f"Генерируем предложение для стоп-слова: {stopword_word}")
     
-    # Подготовка промпта для AI - максимально упрощенный
     prompt = f"""
     ЗАДАЧА: Составить ОДНО деловое предложение, где ОБЯЗАТЕЛЬНО используется фраза "{stopword_word}".
     
@@ -473,6 +311,8 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     - Предложение считается ПРАВИЛЬНЫМ, только если соответствует ВСЕМ критериям.
     - Даже небольшое искажение смысла оригинала делает ответ НЕПРАВИЛЬНЫМ.
     - Полностью несвязанное с оригиналом предложение - НЕПРАВИЛЬНЫЙ ответ.
+    - Предложение с большим количеством ошибок в грамматике, пунктуации, синтаксисе - НЕПРАВИЛЬНЫЙ ответ.
+    - Если пользователь превращает отрицание в положительное, то это НЕПРАВИЛЬНЫЙ ответ.
     
     ## ФОРМАТ ОТВЕТА (строго в JSON):
     {{

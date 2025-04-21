@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import CandidateStates
 from utils.helpers import load_text_content, load_test_questions, get_stopwords_data
-from utils.chatgpt_helpers import verify_test_completion, generate_ai_stopword_sentence, verify_stopword_rephrasing_ai, verify_poem_task
+from utils.chatgpt_helpers import generate_ai_stopword_sentence, verify_stopword_rephrasing_ai, verify_poem_task
 
 logger = logging.getLogger(__name__)
 
@@ -1212,7 +1212,8 @@ async def send_stopword_question(update, context):
             "current_question": current_question_idx,
             "end_time": end_time,
             "update": update,
-            "context_obj": context
+            "context_obj": context,
+            "current_message_text": question_message  # Сохраняем полный текст сообщения
         }
         
         try:
@@ -1371,20 +1372,35 @@ async def update_stopwords_timer(context):
     time_str = format_time(remaining)
     
     try:
-        # Получаем текущее сообщение
-        current_message = await context_obj.bot.get_message(
-            chat_id=chat_id,
-            message_id=message_id
-        )
+        # Получаем текущий текст из контекста, если он сохранен
+        current_message_text = job_data.get("current_message_text", "")
         
-        # Получаем текущий текст и обновляем только часть с таймером
-        current_text = current_message.text
-        if "⏱ Времени осталось:" in current_text:
-            # Заменяем строку времени
-            updated_text = current_text.replace(
-                current_text.splitlines()[0], 
+        # Если текст не сохранен, создаем базовый шаблон
+        if not current_message_text:
+            # Используем текущее сообщение о вопросе как шаблон
+            current_stopword = context_obj.user_data.get("current_stopword", {})
+            word = current_stopword.get("word", "")
+            sentence = current_stopword.get("sentence", "")
+            
+            current_message_text = (
+                f"⏱ Времени осталось: {time_str}\n\n"
+                f"Вопрос {current_question + 1} из {len(stopwords)}:\n\n"
+                f"<b>Предложение:</b> {sentence}\n\n"
+                f"<b>Стоп-слово:</b> {word}\n\n"
+                f"Переформулируйте предложение так, чтобы избежать использования стоп-слова, но сохранить смысл."
+            )
+            # Сохраняем шаблон в данных задачи для последующих обновлений
+            job_data["current_message_text"] = current_message_text
+        
+        # Обновляем только строку со временем
+        if "⏱ Времени осталось:" in current_message_text:
+            updated_text = current_message_text.replace(
+                current_message_text.splitlines()[0], 
                 f"⏱ Времени осталось: {time_str}"
             )
+            
+            # Сохраняем обновленный текст для следующего обновления
+            job_data["current_message_text"] = updated_text
             
             # Обновляем сообщение
             await context_obj.bot.edit_message_text(
@@ -1393,6 +1409,24 @@ async def update_stopwords_timer(context):
                 text=updated_text,
                 parse_mode='HTML'
             )
+        else:
+            # Если формат сообщения изменился, просто добавляем время вверху
+            prefix_time = f"⏱ Времени осталось: {time_str}\n\n"
+            if not current_message_text.startswith("⏱ Времени осталось:"):
+                updated_text = prefix_time + current_message_text
+            else:
+                updated_text = current_message_text
+            
+            # Обновляем сообщение
+            await context_obj.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=updated_text,
+                parse_mode='HTML'
+            )
+            
+            # Сохраняем обновленный текст для следующего обновления
+            job_data["current_message_text"] = updated_text
     except Exception as e:
         logger.error(f"Ошибка при обновлении таймера: {e}")
         context.job.schedule_removal()

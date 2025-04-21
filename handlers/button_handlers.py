@@ -6,7 +6,6 @@ from telegram.ext import ContextTypes
 import database as db
 from config import CandidateStates
 from utils.helpers import load_text_content, load_test_questions
-from utils.chatgpt_helpers import verify_test_completion
 from handlers.candidate_handlers import send_main_menu, send_test_question
 import asyncio
 
