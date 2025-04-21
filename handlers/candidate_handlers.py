@@ -689,6 +689,14 @@ async def process_stopword_answer(update, context, text):
     """Обрабатывает ответ пользователя на вопрос теста стоп-слов"""
     user_id = update.effective_user.id
     
+    # Останавливаем таймер, если он существует
+    if "stopwords_timer_job" in context.user_data:
+        try:
+            context.user_data["stopwords_timer_job"].schedule_removal()
+            logger.info("Таймер остановлен при обработке ответа на вопрос")
+        except Exception as e:
+            logger.error(f"Ошибка при остановке таймера: {e}")
+    
     # Получаем текущий вопрос
     current_stopword = context.user_data.get("current_stopword", {})
     if not current_stopword:
@@ -832,6 +840,14 @@ async def next_stopword_question(update, context):
     query = update.callback_query
     await query.answer()
     
+    # Останавливаем таймер, если он существует
+    if "stopwords_timer_job" in context.user_data:
+        try:
+            context.user_data["stopwords_timer_job"].schedule_removal()
+            logger.info("Таймер остановлен при переходе к следующему вопросу")
+        except Exception as e:
+            logger.error(f"Ошибка при остановке таймера: {e}")
+    
     # Проверяем существование данных теста
     if "stopwords_test" not in context.user_data:
         # Если данные отсутствуют, возможно, тест был перезапущен или произошла ошибка
@@ -857,6 +873,74 @@ async def next_stopword_question(update, context):
     
     # Отправляем следующий вопрос
     await send_stopword_question(update, context)
+    
+    return CandidateStates.STOPWORDS_TEST
+
+async def handle_stopword_answer(update, context):
+    """Обрабатывает ответ на вопрос теста стоп-слов из колбека"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Останавливаем таймер, если он существует
+    if "stopwords_timer_job" in context.user_data:
+        try:
+            context.user_data["stopwords_timer_job"].schedule_removal()
+            logger.info("Таймер остановлен при обработке ответа на вопрос")
+        except Exception as e:
+            logger.error(f"Ошибка при остановке таймера: {e}")
+    
+    # Получаем выбранный вариант ответа
+    answer_idx = int(query.data.split("_")[-1])
+    
+    # Получаем данные теста
+    test_data = context.user_data.get("stopwords_test", {})
+    current_question = test_data.get("current_question", 0)
+    stopwords = test_data.get("stopwords", [])
+    
+    if current_question >= len(stopwords):
+        # Если вопросы закончились, показываем результаты
+        return await handle_stopwords_test_completion(update, context)
+    
+    # Получаем текущий стоп-слово и его данные
+    current_stopword = stopwords[current_question]
+    selected_answer = current_stopword.get("answers", [])[answer_idx] if answer_idx < len(current_stopword.get("answers", [])) else ""
+    
+    # Проверяем, является ли ответ правильным (упрощенная проверка)
+    # В реальном тесте используется AI для проверки пользовательского ответа
+    is_correct = True  # Предполагаем, что все варианты правильные, т.к. это варианты без стоп-слова
+    
+    # Инкрементируем счетчик правильных ответов
+    if is_correct:
+        test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
+    
+    # Показываем результат ответа
+    stopword = current_stopword.get("word", "")
+    original_sentence = current_stopword.get("sentence", "")
+    
+    result_emoji = "✅" if is_correct else "❌"
+    result_message = (
+        f"{result_emoji} {'Правильно!' if is_correct else 'Неправильно!'}\n\n"
+        f"Исходное предложение: <b>{original_sentence}</b>\n"
+        f"Стоп-слово: <b>{stopword}</b>\n"
+        f"Ваш ответ: <b>{selected_answer}</b>"
+    )
+    
+    # Отправляем сообщение с результатом
+    keyboard = [
+        [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="next_stopword_question")],
+        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        result_message,
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
+    
+    # Переходим к следующему вопросу
+    test_data["current_question"] = current_question + 1
+    context.user_data["stopwords_test"] = test_data
     
     return CandidateStates.STOPWORDS_TEST
 
@@ -1068,11 +1152,18 @@ async def send_stopword_question(update, context):
             test_data["generated_sentences"] = generated_sentences
             context.user_data["stopwords_test"] = test_data
     
+    # Проверяем оставшееся время
+    end_time = test_data.get("end_time", 0)
+    now = time.time()
+    remaining = max(0, end_time - now)
+    time_str = format_time(remaining)
+    
     # Отправляем вопрос
     word = current_stopword.get("word", "")
     sentence = current_stopword.get("sentence", "")
     
     question_message = (
+        f"⏱ Времени осталось: {time_str}\n\n"
         f"Вопрос {current_question_idx + 1} из {len(all_stopwords)}:\n\n"
         f"<b>Предложение:</b> {sentence}\n\n"
         f"<b>Стоп-слово:</b> {word}\n\n"
@@ -1085,83 +1176,72 @@ async def send_stopword_question(update, context):
     context.user_data["awaiting_stopword_answer"] = True
     
     # Отправляем вопрос
+    message = None
     if hasattr(update, 'callback_query') and update.callback_query:
         # Редактируем текущее сообщение
-        await update.callback_query.edit_message_text(
+        message = await update.callback_query.edit_message_text(
             text=question_message,
             parse_mode='HTML'
         )
     else:
         # Отправляем как новое сообщение
-        await update.effective_message.reply_text(
+        message = await update.effective_message.reply_text(
             text=question_message,
             parse_mode='HTML'
         )
     
-    return CandidateStates.STOPWORDS_TEST
-
-async def handle_stopword_answer(update, context):
-    """Обработка ответа на вопрос в тесте стоп-слов"""
-    query = update.callback_query
-    await query.answer()
-    
-    # Получаем выбранный вариант ответа
-    answer_idx = int(query.data.split("_")[-1])
-    
-    # Получаем данные теста
-    test_data = context.user_data.get("stopwords_test", {})
-    current_question = test_data.get("current_question", 0)
-    stopwords = test_data.get("stopwords", [])
-    
-    if current_question >= len(stopwords):
-        # Если вопросы закончились, показываем результаты
-        return await handle_stopwords_test_completion(update, context)
-    
-    # Получаем текущий стоп-слово и его данные
-    current_stopword = stopwords[current_question]
-    selected_answer = current_stopword.get("answers", [])[answer_idx] if answer_idx < len(current_stopword.get("answers", [])) else ""
-    
-    # Проверяем, является ли ответ правильным (упрощенная проверка)
-    # В реальном тесте используется AI для проверки пользовательского ответа
-    is_correct = True  # Предполагаем, что все варианты правильные, т.к. это варианты без стоп-слова
-    
-    # Инкрементируем счетчик правильных ответов
-    if is_correct:
-        test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
-    
-    # Показываем результат ответа
-    stopword = current_stopword.get("word", "")
-    original_sentence = current_stopword.get("sentence", "")
-    
-    result_emoji = "✅" if is_correct else "❌"
-    result_message = (
-        f"{result_emoji} {'Правильно!' if is_correct else 'Неправильно!'}\n\n"
-        f"Исходное предложение: <b>{original_sentence}</b>\n"
-        f"Стоп-слово: <b>{stopword}</b>\n"
-        f"Ваш ответ: <b>{selected_answer}</b>"
+    # Запускаем или обновляем таймер
+    message_id = message.message_id if message else (
+        update.callback_query.message.message_id if hasattr(update, 'callback_query') and update.callback_query else None
     )
     
-    # Отправляем сообщение с результатом
-    keyboard = [
-        [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="next_stopword_question")],
-        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        result_message,
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
-    
-    # Переходим к следующему вопросу
-    test_data["current_question"] = current_question + 1
-    context.user_data["stopwords_test"] = test_data
+    if message_id:
+        # Останавливаем существующий таймер, если есть
+        if "stopwords_timer_job" in context.user_data:
+            try:
+                context.user_data["stopwords_timer_job"].schedule_removal()
+                logger.info("Таймер остановлен при переходе к новому вопросу")
+            except Exception as e:
+                logger.error(f"Ошибка при остановке таймера: {e}")
+        
+        # Данные для передачи в функцию обновления таймера
+        job_data = {
+            "chat_id": update.effective_chat.id,
+            "message_id": message_id,
+            "stopwords": all_stopwords,
+            "current_question": current_question_idx,
+            "end_time": end_time,
+            "update": update,
+            "context_obj": context
+        }
+        
+        try:
+            # Запускаем таймер, который будет обновлять сообщение каждую секунду
+            job = context.job_queue.run_repeating(
+                update_stopwords_timer,
+                interval=1.0,  # Интервал обновления - 1 секунда
+                first=1.0,     # Первое обновление через 1 секунду
+                data=job_data,
+                name=f"stopwords_timer_{update.effective_chat.id}"
+            )
+            context.user_data["stopwords_timer_job"] = job
+            logger.info(f"Запущен таймер для теста стоп-слов, оставшееся время: {time_str}")
+        except Exception as e:
+            logger.error(f"Ошибка при запуске таймера: {e}")
     
     return CandidateStates.STOPWORDS_TEST
 
 async def handle_stopwords_test_completion(update, context):
     """Обработка завершения теста стоп-слов"""
+    # Останавливаем таймер, если он существует
+    if "stopwords_timer_job" in context.user_data:
+        try:
+            context.user_data["stopwords_timer_job"].schedule_removal()
+            logger.info("Таймер остановлен при завершении теста")
+        except Exception as e:
+            logger.error(f"Ошибка при остановке таймера: {e}")
+        del context.user_data["stopwords_timer_job"]
+    
     # Получаем результаты теста
     test_data = context.user_data.get("stopwords_test", {})
     correct_answers = test_data.get("correct_answers", 0)
@@ -1221,3 +1301,98 @@ async def handle_stopwords_test_completion(update, context):
         del context.user_data["awaiting_stopword_answer"]
     
     return CandidateStates.MAIN_MENU
+
+def format_time(seconds):
+    """Форматирует секунды в удобочитаемый формат времени"""
+    minutes, seconds = divmod(int(seconds), 60)
+    return f"{minutes:02d}:{seconds:02d}"
+
+async def update_stopwords_timer(context):
+    """Обновляет таймер для теста стоп-слов"""
+    job_data = context.job.data
+    
+    # Получаем данные из параметров задания
+    chat_id = job_data.get("chat_id")
+    message_id = job_data.get("message_id")
+    current_question = job_data.get("current_question")
+    end_time = job_data.get("end_time")
+    stopwords = job_data.get("stopwords", [])
+    
+    # Получаем текущий контекст и обновление
+    update_obj = job_data.get("update")
+    context_obj = job_data.get("context_obj")
+    
+    # Проверяем, не изменился ли номер текущего вопроса в контексте
+    test_data = context_obj.user_data.get("stopwords_test", {})
+    current_question_in_context = test_data.get("current_question", 0)
+    
+    # Если номер вопроса изменился, останавливаем этот таймер
+    if current_question_in_context != current_question:
+        logger.info(f"Номер вопроса изменился: {current_question} -> {current_question_in_context}. Останавливаем таймер.")
+        context.job.schedule_removal()
+        return
+    
+    # Проверяем, не завершился ли уже тест
+    if "stopwords_test" not in context_obj.user_data:
+        logger.info("Тест завершен. Останавливаем таймер.")
+        context.job.schedule_removal()
+        return
+    
+    # Вычисляем оставшееся время
+    now = time.time()
+    remaining = max(0, end_time - now)
+    
+    # Если время истекло, завершаем тест
+    if remaining <= 0:
+        logger.info("Время теста истекло. Завершаем тест.")
+        context.job.schedule_removal()
+        
+        # Отправляем сообщение о завершении времени
+        await context_obj.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text="⏰ Время тестирования истекло! Пожалуйста, вернитесь в главное меню.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ])
+        )
+        
+        # Очищаем данные теста из контекста
+        if "stopwords_test" in context_obj.user_data:
+            del context_obj.user_data["stopwords_test"]
+        if "current_stopword" in context_obj.user_data:
+            del context_obj.user_data["current_stopword"]
+        if "awaiting_stopword_answer" in context_obj.user_data:
+            del context_obj.user_data["awaiting_stopword_answer"]
+        
+        return
+    
+    # Форматируем оставшееся время
+    time_str = format_time(remaining)
+    
+    try:
+        # Получаем текущее сообщение
+        current_message = await context_obj.bot.get_message(
+            chat_id=chat_id,
+            message_id=message_id
+        )
+        
+        # Получаем текущий текст и обновляем только часть с таймером
+        current_text = current_message.text
+        if "⏱ Времени осталось:" in current_text:
+            # Заменяем строку времени
+            updated_text = current_text.replace(
+                current_text.splitlines()[0], 
+                f"⏱ Времени осталось: {time_str}"
+            )
+            
+            # Обновляем сообщение
+            await context_obj.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=updated_text,
+                parse_mode='HTML'
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении таймера: {e}")
+        context.job.schedule_removal()
