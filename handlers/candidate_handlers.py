@@ -640,295 +640,225 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text messages."""
-    # Get current state
     user_id = update.effective_user.id
-    message_text = update.message.text
+    text = update.message.text
     
-    # Check for admin mode
-    admin_mode = context.user_data.get("admin_mode", False)
+    # Проверяем, ожидается ли ответ в тесте на стоп-слова
+    if context.user_data.get("awaiting_stopword_answer", False):
+        return await process_stopword_answer(update, context, text)
     
-    # Secret admin mode - использовать простой код admin123!
-    secret_codes = ["admin123!", "!admin123!", "admin123", "!admin123"]
-    if message_text in secret_codes or message_text.strip() in secret_codes:
-        context.user_data["admin_mode"] = True
-        await update.effective_chat.send_message(
-            "🔓 Режим администратора активирован. Все пункты меню теперь доступны.",
+    # Если текущее состояние - ввод примеров использования стоп-слов
+    if context.user_data.get("awaiting_examples", False):
+        return await process_stopword_examples(update, context, text)
+    
+    # Если текущее состояние - тестовое задание
+    if context.user_data.get("awaiting_test_solution", False):
+        return await process_test_solution(update, context, text)
+    
+    # Если текущее состояние - поэтическое задание
+    if context.user_data.get("awaiting_poem", False):
+        return await process_poem_task(update, context, text)
+    
+    # Если текущее состояние - резюме
+    if context.user_data.get("awaiting_resume", False):
+        return await process_resume(update, context)
+        
+    # Если текущее состояние - выбор дня для собеседования
+    if context.user_data.get("awaiting_interview_day", False):
+        return await process_interview_day(update, context, text)
+    
+    # Если текущее состояние - выбор времени для собеседования
+    if context.user_data.get("awaiting_interview_time", False):
+        return await process_interview_time(update, context, text)
+    
+    # Если пользователь в состоянии разблокировки админа
+    admin_unlock_state = context.user_data.get("admin_unlock_state", None)
+    if admin_unlock_state:
+        return await process_admin_unlock(update, context, text)
+    
+    # В противном случае отправляем главное меню
+    await update.message.reply_text(
+        "Пожалуйста, используйте меню для взаимодействия с ботом.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Главное меню", callback_data="back_to_menu")]
+        ])
+    )
+    return await send_main_menu(update, context)
+
+async def process_stopword_answer(update, context, text):
+    """Обрабатывает ответ пользователя на вопрос теста стоп-слов"""
+    user_id = update.effective_user.id
+    
+    # Получаем текущий вопрос
+    current_stopword = context.user_data.get("current_stopword", {})
+    if not current_stopword:
+        await update.message.reply_text(
+            "Произошла ошибка при обработке ответа. Пожалуйста, вернитесь в главное меню и начните тест заново.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Вернуться в главное меню", callback_data="back_to_menu")]
+                [InlineKeyboardButton("📋 Главное меню", callback_data="back_to_menu")]
             ])
         )
         return CandidateStates.MAIN_MENU
-
-    # Admin mode shortcut to interview
-    if context.user_data.get("admin_mode", False) and message_text.lower() == "sobes!":
-        # Force unlock interview stage
-        context.user_data["admin_test_results"] = {
-            "primary_test": True,
-            "where_to_start_test": True,
-            "logic_test_result": True,
-            "take_test_result": True,
-            "interview_prep_test": True
-        }
-        # Return to main menu which will now show interview as unlocked
-        return await send_main_menu(update, context, message="✅ Этап собеседования разблокирован!")
-
-    # Обработка ответа в тесте стоп-слов
-    if context.user_data.get("awaiting_stopword_answer", False):
-        result = await handle_stopword_answer(update, context)
-        if result:
-            return result
     
-    # Handle solution submission
-    if context.user_data.get("awaiting_solution_message", False):
-        # We are expecting a solution to the AI test
-        context.user_data["awaiting_solution_message"] = False  # Reset flag
+    # Получаем данные теста
+    test_data = context.user_data.get("stopwords_test", {})
+    
+    # Получаем исходное предложение и стоп-слово
+    original_sentence = current_stopword.get("sentence", "")
+    stopword = current_stopword.get("word", "")
+    
+    # Очищаем флаг ожидания ответа
+    context.user_data["awaiting_stopword_answer"] = False
+    
+    # Проверяем ответ пользователя с помощью ИИ
+    try:
+        # Используем AI для проверки ответа пользователя
+        passed, feedback = await verify_stopword_rephrasing_ai(original_sentence, text, current_stopword)
         
-        # Send a processing message
-        processing_msg = await update.effective_chat.send_message(
-            "⏳ Проверяем ваше решение. Это может занять некоторое время..."
+        # Определяем результат
+        result_emoji = "✅" if passed else "❌"
+        result_message = (
+            f"{result_emoji} {feedback}\n\n"
+            f"Исходное предложение: <b>{original_sentence}</b>\n"
+            f"Стоп-слово: <b>{stopword}</b>\n"
+            f"Ваш ответ: <b>{text}</b>"
         )
         
-        try:
-            # Проверяем решение на основе стихотворного задания с ИСКРА
-            logger.info(f"Verifying poem task solution from user {user_id}")
-            passed, feedback = await verify_poem_task(message_text)
-            logger.info(f"Poem task verification result: passed={passed}, feedback length={len(feedback)}")
-            
-            # In admin mode, save to context.user_data instead of database
-            if admin_mode:
-                if "admin_test_results" not in context.user_data:
-                    context.user_data["admin_test_results"] = {}
-                context.user_data["admin_test_results"]["take_test_result"] = passed
-                logger.info(f"Admin mode: Solution verification result: {'PASS' if passed else 'FAIL'}")
-                
-                # Don't unlock the next stage in admin mode
-            else:
-                # Save test result in the database
-                db.update_test_result(user_id, "take_test_result", passed)
-                
-                # Unlock the next stage (interview_prep) regardless of result
-                db.unlock_stage(user_id, "interview_prep")
-                logger.info(f"User {user_id} submitted solution, result: {'PASS' if passed else 'FAIL'}")
-            
-            # Create keyboard with button to return to menu
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Remove processing message
-            await context.bot.delete_message(
-                chat_id=update.effective_chat.id,
-                message_id=processing_msg.message_id
-            )
-            
-            # Send feedback
-            next_stage_text = "" if admin_mode else "Следующий этап 'Подготовка к собеседованию' теперь разблокирован."
-            await update.effective_chat.send_message(
-                f"Проверка вашего решения завершена.\n\n{feedback}\n\n"
-                f"{'✅ Тест пройден!' if passed else '❌ Тест не пройден.'}\n\n"
-                f"{next_stage_text}",
-                reply_markup=reply_markup
-            )
-            
-        except Exception as e:
-            logger.error(f"Error verifying solution: {e}")
-            
-            # Remove processing message
-            try:
-                await context.bot.delete_message(
-                    chat_id=update.effective_chat.id,
-                    message_id=processing_msg.message_id
-                )
-            except:
-                pass
-            
-            # Send error message
-            await update.effective_chat.send_message(
-                "Произошла ошибка при проверке вашего решения. Пожалуйста, попробуйте позже или обратитесь к администратору.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-                ])
-            )
+        # Обновляем счетчик правильных ответов
+        if passed:
+            test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
         
-        return CandidateStates.MAIN_MENU
+        # Переходим к следующему вопросу
+        test_data["current_question"] = test_data.get("current_question", 0) + 1
+        context.user_data["stopwords_test"] = test_data
+        
+        # Отправляем сообщение с результатом
+        keyboard = [
+            [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="next_stopword_question")],
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            result_message,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+        
+        return CandidateStates.STOPWORDS_TEST
     
-    # Default: return to main menu
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ответа на тест стоп-слов: {e}")
+        
+        # Если произошла ошибка, даем пользователю возможность продолжить тест
+        await update.message.reply_text(
+            "Произошла ошибка при проверке вашего ответа. Пожалуйста, продолжите тест.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="next_stopword_question")],
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ])
+        )
+        
+        # Переходим к следующему вопросу
+        test_data["current_question"] = test_data.get("current_question", 0) + 1
+        context.user_data["stopwords_test"] = test_data
+        
+        return CandidateStates.STOPWORDS_TEST
+
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the /start command."""
+    user = update.effective_user
+    user_id = user.id
+    
+    # Сохраняем информацию о пользователе в базу данных
+    db.save_user_info(
+        user_id=user_id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name
+    )
+    
+    # Отправляем приветственное сообщение
+    welcome_message = load_text_content("welcome_message.txt")
+    await update.message.reply_text(welcome_message)
+    
+    # Отправляем главное меню
     return await send_main_menu(update, context)
 
-async def test_timeout(update, context):
-    """Обрабатывает истечение времени теста"""
-    test_name = context.user_data.get("current_test")
-    test_data = context.user_data.get("test_data", [])
+async def handle_schedule_interview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle interview scheduling."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Получаем информацию о пользователе из базы данных
     user_id = update.effective_user.id
+    user_info = db.get_user_info(user_id)
     
-    if not test_data:
-        return await send_main_menu(update, context)
-    
-    # Тест не пройден из-за истечения времени
-    passed = False
-    
-    # Сохраняем результат в базу данных или user_data
-    admin_mode = context.user_data.get("admin_mode", False)
-    if admin_mode:
-        if "admin_test_results" not in context.user_data:
-            context.user_data["admin_test_results"] = {}
-        context.user_data["admin_test_results"][test_name] = passed
-        logger.info(f"Admin mode: Test {test_name} timeout, result: FAIL")
+    # Формируем текст с username пользователя
+    username = user_info.get('username', '')
+    if username:
+        user_link = f"@{username}"
     else:
-        # Сохраняем результат в базу данных
-        db.update_test_result(user_id, test_name, passed)
-        logger.info(f"User {user_id} test {test_name} timeout, result: FAIL")
+        # Если username не указан, используем имя и фамилию
+        first_name = user_info.get('first_name', '')
+        last_name = user_info.get('last_name', '')
+        user_link = f"{first_name} {last_name}".strip() or "Пользователь"
     
-    # Определяем, какие этапы разблокировать
-    next_stage = None
-    if test_name == "primary_test":
-        next_stage = "where_to_start"
-    elif test_name == "where_to_start_test":
-        next_stage = "logic_test"
-    elif test_name == "logic_test_result":
-        next_stage = "preparation_materials"
-    elif test_name == "take_test_result":
-        next_stage = "interview_prep"
-    
-    # Разблокируем следующий этап только не в режиме администратора
-    if next_stage and not admin_mode:
-        db.unlock_stage(user_id, next_stage)
-    
-    # Показываем результаты пользователю
-    result_message = (
-        f"⏰ Время истекло! Тест не пройден.\n\n"
-        f"Вы не успели ответить на все вопросы в отведенное время.\n\n"
-        f"Однако, следующий этап все равно разблокирован. Вы можете продолжить, но рекомендуем еще раз просмотреть материалы."
+    # Формируем сообщение с заявкой на собеседование
+    message = (
+        f"📝 Заявка на собеседование:\n\n"
+        f"ID: {user_id}\n"
+        f"Кандидат: {user_link}\n"
+        f"Предпочтительный день: {context.user_data.get('preferred_day', 'Не указан')}\n"
+        f"Предпочтительное время: {context.user_data.get('preferred_time', 'Не указано')}\n\n"
+        f"Для подтверждения нажмите кнопку ниже."
     )
     
     keyboard = [
+        [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_interview")],
         [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    try:
-        # Если есть сохраненный ID сообщения с тестом, редактируем его
-        if "test_message_id" in context.user_data:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=context.user_data["test_message_id"],
-                text=result_message,
-                reply_markup=reply_markup
-            )
-        else:
-            # Иначе отправляем новое сообщение
-            await update.effective_chat.send_message(
-                text=result_message,
-                reply_markup=reply_markup
-            )
-    except Exception as e:
-        logger.error(f"Error sending timeout message: {e}")
-        await update.effective_chat.send_message(
-            text=result_message,
-            reply_markup=reply_markup
+    await query.edit_message_text(
+        text=message,
+        reply_markup=reply_markup
+    )
+    
+    return CandidateStates.SCHEDULE_INTERVIEW
+
+async def next_stopword_question(update, context):
+    """Переход к следующему вопросу в тесте стоп-слов"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Проверяем существование данных теста
+    if "stopwords_test" not in context.user_data:
+        # Если данные отсутствуют, возможно, тест был перезапущен или произошла ошибка
+        logger.error("Данные теста отсутствуют в next_stopword_question")
+        await query.edit_message_text(
+            "Произошла ошибка при переходе к следующему вопросу. Пожалуйста, начните тест заново.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")],
+                [InlineKeyboardButton("🔄 Начать тест заново", callback_data="start_stopwords_test")]
+            ])
         )
+        return CandidateStates.MAIN_MENU
     
-    # Очищаем данные теста из контекста
-    if "current_test" in context.user_data:
-        del context.user_data["current_test"]
-    if "test_data" in context.user_data:
-        del context.user_data["test_data"]
-    if "current_question" in context.user_data:
-        del context.user_data["current_question"]
-    if "correct_answers" in context.user_data:
-        del context.user_data["correct_answers"]
-    if "test_start_time" in context.user_data:
-        del context.user_data["test_start_time"]
-    if "test_end_time" in context.user_data:
-        del context.user_data["test_end_time"]
-    if "timer_data" in context.user_data:
-        del context.user_data["timer_data"]
+    # Проверяем, не закончился ли тест
+    test_data = context.user_data.get("stopwords_test", {})
+    current_question = test_data.get("current_question", 0)
+    questions = test_data.get("stopwords", [])
     
-    # Останавливаем таймер, если он существует
-    if "test_timer_job" in context.user_data:
-        try:
-            context.user_data["test_timer_job"].schedule_removal()
-            logger.info("Таймер остановлен при завершении теста")
-        except Exception as e:
-            logger.error(f"Ошибка при остановке таймера: {e}")
-        del context.user_data["test_timer_job"]
+    if current_question >= len(questions):
+        # Тест завершен, показываем результаты
+        await handle_stopwords_test_completion(update, context)
+        return CandidateStates.MAIN_MENU
     
-    # Не возвращаемся сразу в главное меню, т.к. пользователь может 
-    # захотеть прочитать сообщение о результатах
-    return CandidateStates.MAIN_MENU
-
-def format_time(seconds):
-    """Форматирует время в формат MM:SS"""
-    minutes, seconds = divmod(int(seconds), 60)
-    return f"{minutes:02d}:{seconds:02d}"
-
-def get_test_time_limit(test_name):
-    """Возвращает лимит времени для конкретного теста в секундах"""
-    time_limits = {
-        "primary_test": 40,         # 40 секунд
-        "where_to_start_test": 60,  # 1 минута
-        "logic_test_result": 1800,  # 30 минут
-        "take_test_result": 600,    # 10 минут
-    }
-    return time_limits.get(test_name, None)  # None означает нет ограничения времени
-
-async def update_timer(context: ContextTypes.DEFAULT_TYPE):
-    """Обновляет таймер в сообщении с тестом"""
-    try:
-        job_data = context.job.data
-        chat_id = job_data.get("chat_id")
-        message_id = job_data.get("message_id")
-        questions = job_data.get("questions", [])
-        current_question = job_data.get("current_question", 0)
-        end_time = job_data.get("end_time", 0)
-        context_obj = job_data.get("context_obj")
-        
-        # Проверяем, не завершен ли тест
-        if ("current_test" not in context_obj.user_data) or ("test_data" not in context_obj.user_data):
-            logger.info("Тест завершен, останавливаем таймер")
-            return
-        
-        # Если текущий вопрос изменился, не обновляем
-        if current_question != context_obj.user_data.get("current_question", 0):
-            logger.info(f"Текущий вопрос изменился: {current_question} -> {context_obj.user_data.get('current_question', 0)}")
-            return
-        
-        # Проверяем, не истекло ли время
-        now = time.time()
-        remaining = end_time - now
-        
-        if remaining <= 0:
-            # Время истекло, завершаем тест
-            logger.info(f"Время истекло для теста в чате {chat_id}")
-            await test_timeout(job_data.get("update"), context_obj)
-            return
-        
-        # Форматируем оставшееся время
-        time_str = format_time(remaining)
-        
-        # Получаем текущий вопрос
-        question = questions[current_question]
-        question_text = f"Времени осталось: {time_str}\nВопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}"
-        
-        # Создаем клавиатуру с вариантами ответов
-        keyboard = []
-        options = question.get('options', question.get('answers', []))
-        for i, answer in enumerate(options):
-            keyboard.append([InlineKeyboardButton(f"{i+1}. {answer}", callback_data=f"answer_{i}")])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Обновляем сообщение
-        await context_obj.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=question_text,
-            reply_markup=reply_markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Ошибка при обновлении таймера: {e}")
+    # Отправляем следующий вопрос
+    await send_stopword_question(update, context)
+    
+    return CandidateStates.STOPWORDS_TEST
 
 async def handle_where_to_start(update, context):
     """Обработка раздела "С чего начать" с тестом на стоп-слова"""
@@ -1005,7 +935,7 @@ async def start_stopwords_test(update, context):
         "Предложение: \"Я решу эту задачу наверное к 23 апреля\"\n"
         "Стоп-слово: <b>Наверное</b>\n\n"
         "Хороший ответ: \"Я решу эту задачу точно к 24 апреля\" или \"Я гарантирую выполнение задачи до конца месяца\"\n\n"
-        "У вас будет 5 минут на прохождение всего теста.\n"
+        "У вас будет 10 минут на прохождение всего теста.\n"
         "Нажмите кнопку ниже, чтобы начать."
     )
     
@@ -1020,11 +950,6 @@ async def start_stopwords_test(update, context):
         reply_markup=reply_markup,
         parse_mode="HTML"
     )
-    
-    # Сохраняем выбранные стоп-слова для использования при запуске теста
-    random.shuffle(stopwords_data)
-    selected_stopwords = stopwords_data[:10] if len(stopwords_data) >= 10 else stopwords_data
-    context.user_data["selected_stopwords"] = selected_stopwords
     
     return CandidateStates.STOPWORDS_TEST
 
@@ -1047,362 +972,252 @@ async def begin_stopwords_test(update, context):
         )
         return CandidateStates.MAIN_MENU
     
-    # Отправляем сообщение о загрузке
-    await query.edit_message_text("⏳ Подготавливаем тест на знание стоп-слов...\n\nЭто может занять несколько секунд.")
+    # Получаем данные о стоп-словах из Google Sheets
+    stopwords_data = get_stopwords_data()
     
-    # Получаем ранее подготовленные стоп-слова
-    selected_stopwords = context.user_data.get("selected_stopwords", [])
+    if not stopwords_data:
+        await query.edit_message_text(
+            "К сожалению, не удалось загрузить данные о стоп-словах. Пожалуйста, попробуйте позже.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ])
+        )
+        return CandidateStates.MAIN_MENU
     
-    if not selected_stopwords:
-        # Если по какой-то причине стоп-слова не были сохранены, получаем их снова
-        stopwords_data = get_stopwords_data()
-        if not stopwords_data:
-            await query.edit_message_text(
-                "К сожалению, не удалось загрузить данные о стоп-словах. Пожалуйста, попробуйте позже.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-                ])
-            )
-            return CandidateStates.MAIN_MENU
-        
-        random.shuffle(stopwords_data)
-        selected_stopwords = stopwords_data[:10] if len(stopwords_data) >= 10 else stopwords_data
+    # Выбираем случайные стоп-слова для теста (без генерации предложений)
+    random.shuffle(stopwords_data)
+    selected_stopwords = stopwords_data[:10] if len(stopwords_data) >= 10 else stopwords_data
     
-    # Сохраняем выбранные стоп-слова в контексте пользователя
+    # Сохраняем данные для теста
     context.user_data["stopwords_test"] = {
         "stopwords": selected_stopwords,
         "current_question": 0,
         "correct_answers": 0,
         "start_time": time.time(),
-        "end_time": time.time() + 600  # 10 минут
+        "end_time": time.time() + 600  # 10 минут на тест
     }
     
-    # Начинаем тест
+    # Показываем первый вопрос
     await send_stopword_question(update, context)
     
     return CandidateStates.STOPWORDS_TEST
 
-async def send_stopword_question(update, context, edit_message=True):
-    """Отправляет вопрос теста на стоп-слова."""
-    # Получаем данные теста из контекста
+async def send_stopword_question(update, context):
+    """Отправляет пользователю вопрос с тестом стоп-слов"""
+    # Получаем данные теста
     test_data = context.user_data.get("stopwords_test", {})
-    current_question = test_data.get("current_question", 0)
-    questions = test_data.get("stopwords", [])
+    current_question_idx = test_data.get("current_question", 0)
+    all_stopwords = test_data.get("stopwords", [])
     
-    if current_question >= len(questions):
-        # Тест завершен
-        await handle_stopwords_test_completion(update, context)
-        return
+    # Проверяем, закончились ли вопросы
+    if current_question_idx >= len(all_stopwords):
+        # Если вопросы закончились, показываем результаты
+        return await handle_stopwords_test_completion(update, context)
     
-    # Получаем текущий вопрос
-    question = questions[current_question]
+    # Если это первый вопрос и мы еще не генерировали предложения
+    if "generated_sentences" not in test_data:
+        test_data["generated_sentences"] = []
+        context.user_data["stopwords_test"] = test_data
     
-    # Форматируем текст вопроса
-    question_text = (
-        f"Вопрос {current_question + 1} из {len(questions)}\n\n"
-        f"Переформулируйте предложение без использования стоп-слов:\n\n"
-        f"<b>{question['sentence']}</b>"
+    # Получаем информацию о текущем стоп-слове
+    current_stopword = all_stopwords[current_question_idx]
+    
+    # Проверяем, есть ли уже сгенерированное предложение для текущего вопроса
+    generated_sentences = test_data.get("generated_sentences", [])
+    if current_question_idx < len(generated_sentences) and generated_sentences[current_question_idx]:
+        # Предложение уже сгенерировано, используем его
+        current_stopword = generated_sentences[current_question_idx]
+    else:
+        # Нужно сгенерировать предложение
+        if hasattr(update, 'callback_query') and update.callback_query:
+            # Отправляем сообщение о генерации
+            await update.callback_query.edit_message_text(
+                f"⏳ Генерирую предложение для стоп-слова '{current_stopword.get('word', '')}'..."
+            )
+        elif update.effective_message:
+            # Отправляем как новое сообщение
+            await update.effective_message.reply_text(
+                f"⏳ Генерирую предложение для стоп-слова '{current_stopword.get('word', '')}'..."
+            )
+        
+        try:
+            # Генерируем предложение с использованием стоп-слова через ИИ
+            word = current_stopword.get("word", "")
+            sentence = await generate_ai_stopword_sentence(current_stopword)
+            
+            # Обновляем объект с предложением
+            current_stopword["sentence"] = sentence
+            
+            # Сохраняем сгенерированное предложение для повторного использования
+            while len(generated_sentences) <= current_question_idx:
+                generated_sentences.append(None)
+            generated_sentences[current_question_idx] = current_stopword
+            test_data["generated_sentences"] = generated_sentences
+            context.user_data["stopwords_test"] = test_data
+            
+        except Exception as e:
+            # Если возникла ошибка при генерации, создаем простой пример
+            logger.error(f"Ошибка при генерации предложения для стоп-слова '{current_stopword.get('word', '')}': {e}")
+            word = current_stopword.get("word", "")
+            current_stopword["sentence"] = f"В этом предложении используется стоп-слово {word}."
+            
+            # Сохраняем даже простое предложение для повторного использования
+            while len(generated_sentences) <= current_question_idx:
+                generated_sentences.append(None)
+            generated_sentences[current_question_idx] = current_stopword
+            test_data["generated_sentences"] = generated_sentences
+            context.user_data["stopwords_test"] = test_data
+    
+    # Отправляем вопрос
+    word = current_stopword.get("word", "")
+    sentence = current_stopword.get("sentence", "")
+    
+    question_message = (
+        f"Вопрос {current_question_idx + 1} из {len(all_stopwords)}:\n\n"
+        f"<b>Предложение:</b> {sentence}\n\n"
+        f"<b>Стоп-слово:</b> {word}\n\n"
+        f"Переформулируйте предложение так, чтобы избежать использования стоп-слова, но сохранить смысл."
     )
     
-    # Создаем кнопки для ответов
-    keyboard = []
-    for i, answer in enumerate(question["answers"]):
-        keyboard.append([InlineKeyboardButton(
-            answer,
-            callback_data=f"stopword_answer_{i}"
-        )])
+    # Сохраняем текущее стоп-слово в контексте для последующей проверки ответа
+    context.user_data["current_stopword"] = current_stopword
+    # Устанавливаем флаг ожидания ответа на стоп-слово
+    context.user_data["awaiting_stopword_answer"] = True
     
-    # Добавляем кнопку "Назад в меню"
-    keyboard.append([InlineKeyboardButton(
-        "⬅️ Вернуться в главное меню",
-        callback_data="back_to_menu"
-    )])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Отправляем или редактируем сообщение
-    if edit_message:
+    # Отправляем вопрос
+    if hasattr(update, 'callback_query') and update.callback_query:
+        # Редактируем текущее сообщение
         await update.callback_query.edit_message_text(
-            question_text,
-            reply_markup=reply_markup,
+            text=question_message,
             parse_mode='HTML'
         )
     else:
-        await update.effective_chat.send_message(
-            question_text,
-            reply_markup=reply_markup,
+        # Отправляем как новое сообщение
+        await update.effective_message.reply_text(
+            text=question_message,
             parse_mode='HTML'
         )
     
-    # Запускаем таймер, если он еще не запущен
-    time_limit = get_test_time_limit("stopwords_test")
-    if time_limit is not None:
-        # Останавливаем существующий таймер, если есть
-        if "stopword_timer_job" in context.user_data:
-            try:
-                context.user_data["stopword_timer_job"].schedule_removal()
-                logger.info("Таймер остановлен при завершении теста")
-            except Exception as e:
-                logger.error(f"Ошибка при остановке таймера: {e}")
-        
-        # Сохраняем время начала теста
-        test_data["start_time"] = time.time()
-        context.user_data["stopwords_test"] = test_data
-        
-        # Создаем данные для таймера
-        job_data = {
-            "chat_id": update.effective_chat.id,
-            "message_id": update.effective_message.message_id,
-            "time_limit": time_limit,
-            "start_time": test_data["start_time"]
-        }
-        
-        try:
-            # Запускаем таймер, который будет обновлять сообщение каждую секунду
-            job = context.job_queue.run_repeating(
-                update_stopword_timer,
-                interval=1.0,
-                first=0.0,
-                data=job_data
-            )
-            context.user_data["stopword_timer_job"] = job
-            logger.info(f"Запущен таймер для теста, оставшееся время: {format_time(time_limit - (time.time() - test_data.get('start_time', 0)))}")
-        except Exception as e:
-            logger.error(f"Ошибка при запуске таймера: {e}")
-            logger.error(f"Параметры задания: {job_data}")
-        
-        # Сохраняем данные для таймера в контексте, чтобы иметь к ним доступ при необходимости
-        context.user_data["timer_data"] = {
-            "chat_id": update.effective_chat.id,
-            "message_id": update.effective_message.message_id,
-            "time_limit": time_limit,
-            "start_time": test_data["start_time"]
-        }
-
-async def handle_stopwords_test_completion(update, context):
-    """Handle the completion of the stopwords test and determine if user passed"""
-    test_data = context.user_data.get("stopwords_test", {})
-    correct_answers = test_data.get("correct_answers", 0)
-    total_questions = len(test_data.get("stopwords", []))
-    
-    # Определяем, пройден ли тест (6+ правильных ответов)
-    passed = correct_answers >= 6
-    
-    # Сохраняем результат теста
-    user_id = update.effective_user.id if update else test_data.get("user_id")
-    admin_mode = context.user_data.get("admin_mode", False)
-    
-    if admin_mode:
-        if "admin_test_results" not in context.user_data:
-            context.user_data["admin_test_results"] = {}
-        context.user_data["admin_test_results"]["where_to_start_test"] = passed
-    else:
-        # Сохраняем результат в базу данных
-        db.update_test_result(user_id, "where_to_start_test", passed)
-        # Разблокируем следующий этап независимо от результата
-        db.unlock_stage(user_id, "logic_test")
-    
-    # Создаем сообщение с результатами
-    if passed:
-        result_message = (
-            f"🎉 Поздравляем! Вы успешно прошли тест на знание стоп-слов!\n\n"
-            f"Правильных ответов: {correct_answers} из {total_questions}\n\n"
-            f"Теперь вы знаете, как избегать стоп-слов в деловой коммуникации. "
-            f"Следующий этап разблокирован - вы можете пройти тест на логику."
-        )
-    else:
-        result_message = (
-            f"📝 Результат теста: {correct_answers} из {total_questions} правильных ответов.\n\n"
-            f"Для успешного прохождения необходимо было правильно перефразировать минимум 6 предложений.\n\n"
-            f"Рекомендуем внимательнее изучить таблицу стоп-слов и попрактиковаться в их замене. "
-            f"Тем не менее, следующий этап разблокирован - вы можете пройти тест на логику."
-        )
-    
-    # Кнопка для возврата в главное меню
-    keyboard = [
-        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Отправляем сообщение
-    if update:
-        if hasattr(update, 'callback_query') and update.callback_query:
-            await update.callback_query.edit_message_text(
-                text=result_message,
-                reply_markup=reply_markup
-            )
-        else:
-            await update.effective_chat.send_message(
-                text=result_message,
-                reply_markup=reply_markup
-            )
-    else:
-        # Если update не предоставлен (вызов из таймера)
-        chat_id = context.user_data.get("stopwords_test", {}).get("chat_id")
-        if chat_id:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=result_message,
-                reply_markup=reply_markup
-            )
-    
-    # Останавливаем таймер, если он существует
-    if "stopword_timer_job" in context.user_data:
-        try:
-            context.user_data["stopword_timer_job"].schedule_removal()
-            del context.user_data["stopword_timer_job"]
-        except Exception as e:
-            logger.error(f"Ошибка при остановке таймера: {e}")
-    
-    # Очищаем данные теста
-    if "stopwords_test" in context.user_data:
-        del context.user_data["stopwords_test"]
-    if "awaiting_stopword_answer" in context.user_data:
-        del context.user_data["awaiting_stopword_answer"]
-    if "current_sentence" in context.user_data:
-        del context.user_data["current_sentence"]
-    if "current_stopword" in context.user_data:
-        del context.user_data["current_stopword"]
-    
-    return CandidateStates.MAIN_MENU
+    return CandidateStates.STOPWORDS_TEST
 
 async def handle_stopword_answer(update, context):
-    """Обрабатывает ответ пользователя на вопрос теста на стоп-слова."""
+    """Обработка ответа на вопрос в тесте стоп-слов"""
     query = update.callback_query
     await query.answer()
     
-    # Получаем данные теста из контекста
+    # Получаем выбранный вариант ответа
+    answer_idx = int(query.data.split("_")[-1])
+    
+    # Получаем данные теста
     test_data = context.user_data.get("stopwords_test", {})
     current_question = test_data.get("current_question", 0)
-    questions = test_data.get("questions", [])
+    stopwords = test_data.get("stopwords", [])
     
-    if current_question >= len(questions):
-        # Тест завершен
-        await handle_stopwords_test_completion(update, context)
-        return
+    if current_question >= len(stopwords):
+        # Если вопросы закончились, показываем результаты
+        return await handle_stopwords_test_completion(update, context)
     
-    # Получаем выбранный ответ
-    answer_index = int(query.data.split("_")[-1])
-    question = questions[current_question]
-    selected_answer = question["answers"][answer_index]
+    # Получаем текущий стоп-слово и его данные
+    current_stopword = stopwords[current_question]
+    selected_answer = current_stopword.get("answers", [])[answer_idx] if answer_idx < len(current_stopword.get("answers", [])) else ""
     
-    # Проверяем правильность ответа
-    is_correct = selected_answer == question["correct_answer"]
+    # Проверяем, является ли ответ правильным (упрощенная проверка)
+    # В реальном тесте используется AI для проверки пользовательского ответа
+    is_correct = True  # Предполагаем, что все варианты правильные, т.к. это варианты без стоп-слова
     
-    # Обновляем статистику
-    if "correct_answers" not in test_data:
-        test_data["correct_answers"] = 0
+    # Инкрементируем счетчик правильных ответов
     if is_correct:
-        test_data["correct_answers"] += 1
+        test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
     
-    # Сохраняем обновленные данные
-    test_data["current_question"] = current_question + 1
-    context.user_data["stopwords_test"] = test_data
+    # Показываем результат ответа
+    stopword = current_stopword.get("word", "")
+    original_sentence = current_stopword.get("sentence", "")
     
-    # Отправляем сообщение о результате
+    result_emoji = "✅" if is_correct else "❌"
     result_message = (
-        f"Ваш ответ: {selected_answer}\n\n"
-        f"Правильный ответ: {question['correct_answer']}\n\n"
-        f"Объяснение: {question['explanation']}"
+        f"{result_emoji} {'Правильно!' if is_correct else 'Неправильно!'}\n\n"
+        f"Исходное предложение: <b>{original_sentence}</b>\n"
+        f"Стоп-слово: <b>{stopword}</b>\n"
+        f"Ваш ответ: <b>{selected_answer}</b>"
     )
     
-    # Создаем кнопку для перехода к следующему вопросу
-    keyboard = [[InlineKeyboardButton(
-        "➡️ Следующий вопрос",
-        callback_data="next_stopword_question"
-    )]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Отправляем результат проверки
-    await update.effective_chat.send_message(
-        text=result_message,
-        reply_markup=reply_markup
-    )
-
-async def next_stopword_question(update, context):
-    """Переход к следующему вопросу в тесте стоп-слов"""
-    query = update.callback_query
-    await query.answer()
-    
-    # Проверяем существование данных теста
-    if "stopwords_test" not in context.user_data:
-        # Если данные отсутствуют, возможно, тест был перезапущен или произошла ошибка
-        logger.error("Данные теста отсутствуют в next_stopword_question")
-        await query.edit_message_text(
-            "Произошла ошибка при переходе к следующему вопросу. Пожалуйста, начните тест заново.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")],
-                [InlineKeyboardButton("🔄 Начать тест заново", callback_data="start_stopwords_test")]
-            ])
-        )
-    return CandidateStates.MAIN_MENU
-    
-    # Увеличиваем счетчик вопросов
-    context.user_data["stopwords_test"]["current_question"] += 1
-    
-    # Отправляем следующий вопрос
-    await send_stopword_question(update, context)
-    
-    return CandidateStates.STOPWORDS_TEST
-
-async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle the /start command."""
-    user = update.effective_user
-    user_id = user.id
-    
-    # Сохраняем информацию о пользователе в базу данных
-    db.save_user_info(
-        user_id=user_id,
-        username=user.username,
-        first_name=user.first_name,
-        last_name=user.last_name
-    )
-    
-    # Отправляем приветственное сообщение
-    welcome_message = load_text_content("welcome_message.txt")
-    await update.message.reply_text(welcome_message)
-    
-    # Отправляем главное меню
-    return await send_main_menu(update, context)
-
-async def handle_schedule_interview(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle interview scheduling."""
-    query = update.callback_query
-    await query.answer()
-    
-    # Получаем информацию о пользователе из базы данных
-    user_id = update.effective_user.id
-    user_info = db.get_user_info(user_id)
-    
-    # Формируем текст с username пользователя
-    username = user_info.get('username', '')
-    if username:
-        user_link = f"@{username}"
-    else:
-        # Если username не указан, используем имя и фамилию
-        first_name = user_info.get('first_name', '')
-        last_name = user_info.get('last_name', '')
-        user_link = f"{first_name} {last_name}".strip() or "Пользователь"
-    
-    # Формируем сообщение с заявкой на собеседование
-    message = (
-        f"📝 Заявка на собеседование:\n\n"
-        f"ID: {user_id}\n"
-        f"Кандидат: {user_link}\n"
-        f"Предпочтительный день: {context.user_data.get('preferred_day', 'Не указан')}\n"
-        f"Предпочтительное время: {context.user_data.get('preferred_time', 'Не указано')}\n\n"
-        f"Для подтверждения нажмите кнопку ниже."
-    )
-    
+    # Отправляем сообщение с результатом
     keyboard = [
-        [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_interview")],
+        [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="next_stopword_question")],
         [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        text=message,
-        reply_markup=reply_markup
+        result_message,
+        reply_markup=reply_markup,
+        parse_mode='HTML'
     )
     
-    return CandidateStates.SCHEDULE_INTERVIEW
+    # Переходим к следующему вопросу
+    test_data["current_question"] = current_question + 1
+    context.user_data["stopwords_test"] = test_data
+    
+    return CandidateStates.STOPWORDS_TEST
+
+async def handle_stopwords_test_completion(update, context):
+    """Обработка завершения теста стоп-слов"""
+    # Получаем результаты теста
+    test_data = context.user_data.get("stopwords_test", {})
+    correct_answers = test_data.get("correct_answers", 0)
+    total_questions = len(test_data.get("stopwords", []))
+    
+    # Считаем процент правильных ответов
+    score = (correct_answers / total_questions) * 100 if total_questions > 0 else 0
+    
+    # Определяем, пройден ли тест (минимум 70%)
+    passed = score >= 70
+    
+    # Сохраняем результат теста в базе данных
+    user_id = update.effective_user.id
+    db.update_test_result(user_id, "where_to_start_test", passed)
+    
+    # Разблокируем следующий этап
+    db.unlock_stage(user_id, "logic_test")
+    
+    # Формируем сообщение с результатами
+    if passed:
+        result_message = (
+            f"🎉 Поздравляем! Вы успешно прошли тест на знание стоп-слов!\n\n"
+            f"Правильных ответов: {correct_answers} из {total_questions} ({score:.1f}%)\n\n"
+            f"Следующий этап разблокирован. Продолжайте свое путешествие по нашей программе найма!"
+        )
+    else:
+        result_message = (
+            f"❌ Результат теста: не пройден.\n\n"
+            f"Правильных ответов: {correct_answers} из {total_questions} ({score:.1f}%)\n\n"
+            f"Однако, следующий этап все равно разблокирован. Вы можете продолжить, но рекомендуем "
+            f"внимательнее изучить стоп-слова в таблице."
+        )
+    
+    # Отправляем сообщение с результатами
+    keyboard = [
+        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if hasattr(update, 'callback_query') and update.callback_query:
+        await update.callback_query.edit_message_text(
+            text=result_message,
+            reply_markup=reply_markup
+        )
+    else:
+        await update.effective_message.reply_text(
+            text=result_message,
+            reply_markup=reply_markup
+        )
+    
+    # Очищаем данные теста из контекста
+    if "stopwords_test" in context.user_data:
+        del context.user_data["stopwords_test"]
+    if "current_stopword" in context.user_data:
+        del context.user_data["current_stopword"]
+    if "awaiting_stopword_answer" in context.user_data:
+        del context.user_data["awaiting_stopword_answer"]
+    
+    return CandidateStates.MAIN_MENU

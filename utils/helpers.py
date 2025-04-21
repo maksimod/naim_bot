@@ -113,8 +113,8 @@ def get_stopwords_data():
         
         if response.status_code != 200:
             logger.error(f"Ошибка при запросе к API Google Sheets: {response.status_code}, {response.text}")
-            # Возвращаем тестовые данные вместо пустого списка при ошибке
-            return get_fallback_stopwords()
+            # Возвращаем пустой список при ошибке, чтобы ошибка была видна
+            return []
         
         # Парсинг данных из ответа
         data = response.json()
@@ -146,20 +146,20 @@ def get_stopwords_data():
         else:
             logger.error(f"Неверный формат ответа API Google Sheets: {data}")
         
-        # Возвращаем тестовые данные вместо пустого списка
-        return get_fallback_stopwords()
+        # Возвращаем пустой список при любой ошибке формата данных
+        return []
         
     except requests.exceptions.Timeout:
         logger.error("Превышено время ожидания запроса к API Google Sheets")
-        return get_fallback_stopwords()
+        return []
     except Exception as e:
         logger.error(f"Ошибка при получении данных о стоп-словах: {e}")
-        return get_fallback_stopwords()
+        return []
 
 def get_all_stopwords():
     """Получить список всех стоп-слов для проверки"""
     try:
-        # Получаем все стоп-слова из базы данных или из Google Sheets
+        # Получаем все стоп-слова из Google Sheets
         stopwords_data = get_stopwords_data()
         
         # Создаем список только слов
@@ -169,10 +169,8 @@ def get_all_stopwords():
             if word:
                 stopwords_list.append(word)
         
-        # Объединяем списки, удаляя дубликаты
-        all_stopwords = list(set(stopwords_list + common_stopwords))
-        
-        return all_stopwords
+        # Возвращаем список без дубликатов
+        return list(set(stopwords_list))
     except Exception as e:
         logger.error(f"Ошибка при получении списка всех стоп-слов: {e}")
         return []
