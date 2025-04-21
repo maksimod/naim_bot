@@ -1,9 +1,11 @@
 import psycopg2
 import json
-from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, BOT_PREFIX
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, BOT_PREFIX, MODE
 
 def get_connection():
     """Get a connection to the PostgreSQL database"""
+    print(f"Connecting to database in {MODE} mode")
+    print(f"DB Info: {DB_HOST}:{DB_PORT}/{DB_NAME} (prefix: {BOT_PREFIX})")
     return psycopg2.connect(
         host=DB_HOST,
         port=DB_PORT,

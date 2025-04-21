@@ -15,7 +15,7 @@ DB_PORT = os.getenv("PORT")
 DB_NAME = os.getenv("DATABASE")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-BOT_PREFIX = os.getenv("BOT_PREFIX", "naim_bot_")
+BOT_PREFIX = os.getenv("BOT_PREFIX")
 
 # States for the FSM (Finite State Machine)
 class CandidateStates:

@@ -6,8 +6,16 @@ from dotenv import load_dotenv
 # Загрузка переменных окружения из .env
 load_dotenv()
 
-# Загрузка переменных для PostgreSQL из postgres.env
-load_dotenv('postgres.env')
+# Определение режима работы (develop или production)
+MODE = os.getenv("MODE")
+
+# Загрузка переменных для PostgreSQL из соответствующего файла
+if MODE == "develop":
+    load_dotenv('postgres.develop.env')
+    print("Running in DEVELOPMENT mode")
+else:
+    load_dotenv('postgres.env')
+    print("Running in PRODUCTION mode")
 
 class CandidateStates(enum.Enum):
     """Состояния для бота кандидата"""
@@ -74,10 +82,10 @@ if not RECRUITER_BOT_TOKEN:
 DB_HOST = os.getenv("HOST")
 DB_PORT = os.getenv("PORT")
 DB_NAME = os.getenv("DATABASE")
-DB_USER = os.getenv("USER")
-DB_PASSWORD = os.getenv("PASSWORD")
+DB_USER = os.getenv("DB_USER")  # Исправлено с USER на DB_USER для соответствия с файлами конфигурации
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 BOT_PREFIX = os.getenv("BOT_PREFIX", "naim_bot_")
 
 # Проверка наличия необходимых переменных для подключения к PostgreSQL
 if not all([DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD]):
-    raise ValueError("PostgreSQL connection parameters not set in postgres.env")
+    raise ValueError(f"PostgreSQL connection parameters not set in {'postgres.develop.env' if MODE == 'develop' else 'postgres.env'}")
