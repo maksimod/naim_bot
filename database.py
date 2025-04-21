@@ -458,7 +458,7 @@ def get_metrics():
     ''')
     approved_interviews = cursor.fetchone()[0]
     
-    # Get test pass rates
+    # Get test pass rates based on test_submissions table
     cursor.execute(f'''
         SELECT test_type, status, COUNT(*) 
         FROM {BOT_PREFIX}test_submissions 
@@ -469,27 +469,48 @@ def get_metrics():
     for row in cursor.fetchall():
         test_type, status, count = row
         if test_type not in test_stats:
-            test_stats[test_type] = {'passed': 0, 'failed': 0, 'pending': 0}
+            test_stats[test_type] = {'passed': 0, 'failed': 0, 'pending': 0, 'total_submitted': 0}
         
-        if status in test_stats[test_type]:
-            test_stats[test_type][status] = count
+        if status == 'approved':
+            test_stats[test_type]['passed'] += count
+        elif status == 'rejected':
+            test_stats[test_type]['failed'] += count
+        elif status == 'pending':
+            test_stats[test_type]['pending'] += count
+            
+        test_stats[test_type]['total_submitted'] += count
     
-    # Calculate pass rates and format the results
-    pass_rates = {}
-    for test_type, stats in test_stats.items():
-        total = stats['passed'] + stats['failed']
-        if total > 0:
-            pass_rate = (stats['passed'] / total) * 100
-        else:
-            pass_rate = 0
-        
-        pass_rates[test_type] = {
-            'pass_rate': round(pass_rate, 2),
-            'total_submitted': total,
-            'passed': stats['passed'],
-            'failed': stats['failed'],
-            'pending': stats['pending']
-        }
+    # Also get test results from current_test_results field in users table
+    cursor.execute(f'SELECT current_test_results FROM {BOT_PREFIX}users WHERE current_test_results IS NOT NULL')
+    user_test_results = cursor.fetchall()
+    
+    # Process user test results
+    for result_row in user_test_results:
+        if result_row[0]:
+            try:
+                test_results = json.loads(result_row[0])
+                for test_name, passed in test_results.items():
+                    # Convert legacy test names if needed
+                    if test_name == 'primary_test':
+                        test_type = 'primary_test'
+                    elif test_name == 'where_to_start_test':
+                        test_type = 'stopwords_test'
+                    elif test_name == 'logic_test_result':
+                        test_type = 'logic_test'
+                    else:
+                        test_type = test_name
+                        
+                    if test_type not in test_stats:
+                        test_stats[test_type] = {'passed': 0, 'failed': 0, 'pending': 0, 'total_submitted': 1}
+                    else:
+                        test_stats[test_type]['total_submitted'] += 1
+                        
+                    if passed:
+                        test_stats[test_type]['passed'] += 1
+                    else:
+                        test_stats[test_type]['failed'] += 1
+            except json.JSONDecodeError:
+                pass  # Skip invalid JSON
     
     conn.close()
     
@@ -499,7 +520,7 @@ def get_metrics():
         'logic_test_completions': logic_completions,
         'interview_requests': interview_requests,
         'approved_interviews': approved_interviews,
-        'test_stats': pass_rates
+        'test_stats': test_stats
     }
 
 def get_user_info(user_id):

@@ -87,13 +87,13 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = "📊 **Метрики процесса найма:**\n\n"
         
         # Total users who started
-        message += f"👤 Всего пользователей: {metrics['total_users']}\n\n"
+        message += f"👤 Всего пользователей: {metrics['total_candidates']}\n\n"
         
         # Test metrics
         message += "📝 **Прогресс по тестам:**\n"
         
-        if metrics['test_metrics']:
-            for test_type, data in metrics['test_metrics'].items():
+        if metrics['test_stats']:
+            for test_type, data in metrics['test_stats'].items():
                 # Make test name more readable
                 test_name = test_type.replace('_', ' ').title()
                 if test_type == 'primary_test':
@@ -108,8 +108,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     test_name = "Подготовка к собеседованию"
                     
                 message += f"• {test_name}:\n"
-                message += f"  - Прошли тест: {data['took_test']}\n"
-                message += f"  - Успешно завершили: {data['passed_test']}\n"
+                message += f"  - Прошли тест: {data['total_submitted']}\n"
+                message += f"  - Успешно завершили: {data['passed']}\n"
         else:
             message += "Пока нет данных по тестам\n"
         
