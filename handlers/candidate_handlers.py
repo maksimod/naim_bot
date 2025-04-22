@@ -58,8 +58,11 @@ async def send_main_menu(update, context, message=None, edit=False):
         admin_test_results = context.user_data.get("admin_test_results", {})
         
         for stage_id, stage_name in menu_options:
-            # Make stage green (unlocked)
-            stage_name = stage_name.replace("🔴", "🟢")
+            # Make stage green (unlocked), except for information modules which should be blue
+            if stage_id in ["about_company", "preparation_materials"]:
+                stage_name = stage_name.replace("🔴", "🔵")
+            else:
+                stage_name = stage_name.replace("🔴", "🟢")
             
             # Check specific test results and show pass/fail
             if stage_id == "primary_file" and "primary_test" in admin_test_results:
@@ -194,8 +197,8 @@ async def send_main_menu(update, context, message=None, edit=False):
                         unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
                     
                     if stage_id in unlocked_stages:
-                        # Stage unlocked - show as green circle (not checkmark)
-                        stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
+                        # Stage unlocked - show as blue circle (for informational module)
+                        stage_name = stage_name.replace("🔴", "🔵")  # Replace red circle with blue circle
             
             # Check if there's a test result for this stage
             test_name = None
