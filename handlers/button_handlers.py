@@ -495,7 +495,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.effective_chat.send_message(
                     "Ошибка: не удалось загрузить опрос. Пожалуйста, свяжитесь с администратором."
                 )
-                return await send_main_menu(update, context)
+                return await send_main_menu(update, context, edit=True)
             
             # Create keyboard with survey options
             keyboard = []
@@ -532,13 +532,13 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_chat.send_message(
                 "Извините, видеоматериалы временно недоступны. Пожалуйста, свяжитесь с администратором."
             )
-            return await send_main_menu(update, context)
+            return await send_main_menu(update, context, edit=True)
         except Exception as e:
             logger.error(f"Error sending preparation materials: {e}")
             await update.effective_chat.send_message(
                 "Произошла ошибка при загрузке материалов. Пожалуйста, попробуйте позже."
             )
-            return await send_main_menu(update, context)
+            return await send_main_menu(update, context, edit=True)
         
         return CandidateStates.PREPARATION_MATERIALS
     
@@ -672,7 +672,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_chat.send_message(
                 "Произошла ошибка при загрузке задания. Пожалуйста, попробуйте позже."
             )
-            return await send_main_menu(update, context)
+            return await send_main_menu(update, context, edit=True)
             
         return CandidateStates.TAKE_TEST
     
@@ -680,7 +680,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "submit_solution":
         if "awaiting_solution" not in context.user_data or not context.user_data["awaiting_solution"]:
             # If we're not awaiting a solution, return to main menu
-            return await send_main_menu(update, context)
+            return await send_main_menu(update, context, edit=True)
             
         # Проверяем, проходил ли пользователь уже этот тест
         user_id = update.effective_user.id

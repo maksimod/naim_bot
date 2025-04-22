@@ -47,7 +47,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show the main menu when the command /menu is issued."""
-    return await send_main_menu(update, context)
+    return await send_main_menu(update, context, edit=True)
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle unknown commands."""

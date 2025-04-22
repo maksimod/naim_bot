@@ -419,7 +419,7 @@ async def handle_test_completion(update, context):
     admin_mode = context.user_data.get("admin_mode", False)
     
     if not test_data:
-        return await send_main_menu(update, context)
+        return await send_main_menu(update, context, edit=True)
     
     # Get the questions array from test_data depending on format
     questions = []
@@ -584,45 +584,39 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not questions or current_question >= len(questions):
             # Снимаем блокировку перед выходом из функции
             context.user_data.pop("processing_answer", None)
-            return await send_main_menu(update, context)
+            return await send_main_menu(update, context, edit=True)
         
         try:
-            # Parse the answer index from callback data
-            if query.data.startswith("answer_"):
-                # Проверяем, не истекло ли время теста
-                if "test_end_time" in context.user_data:
-                    now = time.time()
-                    end_time = context.user_data["test_end_time"]
-                    if now >= end_time:
-                        # Время истекло, завершаем тест
-                        logger.info(f"Time expired for test when processing answer")
-                        return await test_timeout(update, context)
-                
-                answer_index = int(query.data.split('_')[1])
-                question = questions[current_question]
-                
-                # Support both correct_answer and correct_option formats
-                # The field may contain either numeric index or string value
-                correct_answer = None
-                if 'correct_answer' in question:
-                    correct_answer = question['correct_answer']
-                elif 'correct_option' in question:
-                    correct_answer = question['correct_option']
+            # Get which answer was selected
+            answer_index = int(query.data.split("_")[1])
+            
+            # Get current question details
+            question = questions[current_question]
+            
+            # Handle different test formats (some use 'answer' and some use 'correct_answer')
+            correct_answer = question.get('answer', question.get('correct_answer', -1))
+            
+            # Try to convert correct_answer to an integer if it's provided as a string (e.g., "1", "2", etc.)
+            if isinstance(correct_answer, str):
+                if correct_answer.isdigit():
+                    # Convert 1-based index to 0-based
+                    correct_answer = int(correct_answer) - 1
                 else:
-                    # Default to first option if no correct answer is specified
-                    correct_answer = 0
-                    
-                # Convert to int if it's a string number
-                if isinstance(correct_answer, str) and correct_answer.isdigit():
-                    correct_answer = int(correct_answer)
-                    
-                # Отладочный вывод для диагностики
-                logger.info(f"Answer debug - Question: {question['question']}")
-                logger.info(f"Answer debug - Available fields: {list(question.keys())}")
-                logger.info(f"Answer debug - correct_answer value: {correct_answer}")
-                logger.info(f"Answer debug - user selected: {answer_index}")
-                logger.info(f"Answer debug - options: {question.get('options', question.get('answers', []))}")
-                
+                    # Если correct_answer - не число, то ищем его индекс в массиве options/answers
+                    options = question.get('options', question.get('answers', []))
+                    if correct_answer in options:
+                        correct_answer = options.index(correct_answer)
+                    else:
+                        logger.error(f"Invalid correct_answer format: {correct_answer}")
+                        correct_answer = -1
+            
+            # Check if the answer is correct
+            if admin_mode:
+                # In admin mode, always mark answer as correct
+                is_correct = True
+                context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
+                logger.info(f"Admin mode: Automatically marking answer as correct. Total correct answers: {context.user_data.get('correct_answers', 0)}")
+            else:
                 # Проверяем, совпадает ли выбранный ответ с правильным
                 # В файле теста индексы 0-based, а в кнопках 1-based, поэтому сравниваем напрямую
                 is_correct = answer_index == correct_answer
@@ -649,25 +643,50 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 # Сразу переходим к следующему вопросу без показа правильности ответа
                 context.user_data["current_question"] = current_question + 1
                 
-                # Обновляем информацию о текущем вопросе для таймера
-                if "timer_data" in context.user_data:
-                    context.user_data["timer_data"]["current_question"] = context.user_data["current_question"]
+                # Wait briefly to avoid UI flickering
+                await asyncio.sleep(0.1)
                 
-                # If this is the last question, complete the test
-                if context.user_data["current_question"] >= len(questions):
+                # Determine if we should go to the next question or finish
+                if context.user_data["current_question"] < len(questions):
+                    # Continue to next question
+                    try:
+                        await send_test_question(update, context, edit_message=True)
+                    except Exception as e:
+                        logger.error(f"Error sending next question: {e}")
+                        await query.message.reply_text("Произошла ошибка при загрузке следующего вопроса.")
+                        return await send_main_menu(update, context, edit=True)
+                    
+                    # Stay in test state
+                    if "stopwords_test" in test_name:
+                        return CandidateStates.STOPWORDS_TEST
+                    elif test_name == "primary_test":
+                        return CandidateStates.PRIMARY_TEST
+                    elif test_name == "where_to_start_test":
+                        return CandidateStates.WHERE_TO_START_TEST
+                    elif test_name == "logic_test_result":
+                        return CandidateStates.LOGIC_TEST_TESTING
+                    elif test_name == "interview_prep_test":
+                        return CandidateStates.INTERVIEW_PREP_TEST
+                else:
+                    # Test is finished, handle completion
                     return await handle_test_completion(update, context)
-                
-                # Otherwise, send next question
-                return await send_test_question(update, context, edit_message=True)
+                    
+        except ValueError as e:
+            logger.error(f"Error parsing answer index: {e}")
+            await query.message.reply_text("Произошла ошибка при проверке ответа. Пожалуйста, попробуйте снова.")
+            return await send_main_menu(update, context, edit=True)
             
-            return CandidateStates.PRIMARY_TEST
+        except Exception as e:
+            logger.error(f"Unexpected error in handle_test_answer: {e}")
+            await query.message.reply_text("Произошла ошибка при обработке ответа. Пожалуйста, попробуйте снова.")
+            return await send_main_menu(update, context, edit=True)
             
-        except (ValueError, IndexError, KeyError) as e:
-            logger.error(f"Error processing test answer: {e}")
-            await query.message.reply_text("Ошибка при обработке ответа. Пожалуйста, попробуйте снова.")
-            # Снимаем блокировку в случае ошибки
-            context.user_data.pop("processing_answer", None)
-            return await send_main_menu(update, context)
+    except (ValueError, IndexError, KeyError) as e:
+        logger.error(f"Error processing test answer: {e}")
+        await query.message.reply_text("Ошибка при обработке ответа. Пожалуйста, попробуйте снова.")
+        # Снимаем блокировку в случае ошибки
+        context.user_data.pop("processing_answer", None)
+        return await send_main_menu(update, context, edit=True)
     finally:
         # Снимаем блокировку после обработки ответа
         context.user_data.pop("processing_answer", None)
@@ -841,7 +860,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📋 Главное меню", callback_data="back_to_menu")]
         ])
     )
-    return await send_main_menu(update, context)
+    return await send_main_menu(update, context, edit=True)
 
 async def process_stopword_answer(update, context, text):
     """Обрабатывает ответ пользователя на вопрос теста стоп-слов"""
@@ -939,23 +958,30 @@ async def process_stopword_answer(update, context, text):
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /start command."""
-    user = update.effective_user
-    user_id = user.id
+    user_id = update.effective_user.id
+    username = update.effective_user.username
+    first_name = update.effective_user.first_name
+    last_name = update.effective_user.last_name
     
-    # Сохраняем информацию о пользователе в базу данных
-    db.save_user_info(
-        user_id=user_id,
-        username=user.username,
-        first_name=user.first_name,
-        last_name=user.last_name
+    # Register user in the database if not already registered
+    db.register_candidate(user_id, username, first_name, last_name)
+    
+    # Unlock first stages
+    db.unlock_stage(user_id, "about_company")
+    db.unlock_stage(user_id, "primary_file")
+    
+    # Welcome message
+    await update.message.reply_text(
+        "Добро пожаловать в бот для подготовки к собеседованию!\n\n"
+        "Здесь вы сможете:\n"
+        "- Узнать о компании\n"
+        "- Пройти тесты для проверки знаний\n"
+        "- Подготовиться к собеседованию\n"
+        "- Записаться на собеседование\n\n"
+        "Выберите интересующий вас раздел в главном меню."
     )
     
-    # Отправляем приветственное сообщение
-    welcome_message = load_text_content("welcome_message.txt")
-    await update.message.reply_text(welcome_message)
-    
-    # Отправляем главное меню
-    return await send_main_menu(update, context)
+    return await send_main_menu(update, context, edit=True)
 
 async def handle_schedule_interview(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle interview scheduling."""
@@ -1847,3 +1873,61 @@ async def test_timeout(update, context):
         logger.error(f"Error sending test timeout message: {e}")
     
     return CandidateStates.MAIN_MENU
+
+# Обработка поэтического задания
+async def process_poem_task(update, context, text):
+    """Обрабатывает поэтические задания от пользователя"""
+    user_id = update.effective_user.id
+    
+    # Проверяем, что текст содержит минимум 4 строки
+    lines = text.strip().split('\n')
+    if len(lines) < 4:
+        await update.message.reply_text(
+            "Ваше стихотворение слишком короткое. Пожалуйста, напишите минимум 4 строки."
+        )
+        return CandidateStates.AWAITING_POEM
+    
+    # Отправляем сообщение о проверке
+    processing_message = await update.message.reply_text("⏳ Проверяем ваше стихотворение...")
+    
+    # Используем ИИ для проверки стихотворения
+    try:
+        result = await verify_poem_task(text)
+        is_valid = result["is_valid"]
+        feedback = result["feedback"]
+        
+        # Удаляем сообщение о проверке
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id, 
+            message_id=processing_message.message_id
+        )
+        
+        if is_valid:
+            # Обновляем результат теста в базе данных
+            db.update_test_result(user_id, "interview_prep_test", True)
+            
+            # Разблокируем следующий этап если он был заблокирован
+            db.unlock_stage(user_id, "schedule_interview")
+            
+            # Отправляем сообщение об успешном выполнении
+            await update.message.reply_text(
+                f"✅ Поздравляем! Ваше стихотворение принято!\n\n{feedback}\n\n"
+                "Теперь вы можете перейти к следующему этапу - запись на собеседование."
+            )
+            
+            # Сбрасываем состояние ожидания стихотворения
+            context.user_data["awaiting_poem"] = False
+            return await send_main_menu(update, context, edit=True)
+        else:
+            # Отправляем сообщение о неудаче с рекомендациями
+            await update.message.reply_text(
+                f"❌ К сожалению, ваше стихотворение не соответствует требованиям.\n\n{feedback}\n\n"
+                "Пожалуйста, попробуйте еще раз, учитывая рекомендации."
+            )
+            return CandidateStates.AWAITING_POEM
+    except Exception as e:
+        logger.error(f"Error verifying poem: {e}")
+        await update.message.reply_text(
+            "Произошла ошибка при проверке стихотворения. Пожалуйста, попробуйте позже."
+        )
+        return await send_main_menu(update, context, edit=True)

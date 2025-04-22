@@ -63,7 +63,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
    
     # Показываем главное меню
-    return await send_main_menu(update, context)
+    return await send_main_menu(update, context, edit=True)
 
 # Callback query handlers
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -114,7 +114,22 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await query.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+        # Редактируем текущее сообщение вместо отправки нового
+        try:
+            await query.edit_message_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logger.error(f"Error editing message for metrics view: {e}")
+            # В случае ошибки отправляем новое сообщение
+            await query.message.reply_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            
         return RecruiterStates.MAIN_MENU
     
     elif query.data.startswith("approve_submission_") or query.data.startswith("reject_submission_"):
@@ -239,7 +254,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not submission:
             await query.message.reply_text("Заявка найдена или уже обработана.")
-            return await send_main_menu(update, context)
+            return await send_main_menu(update, context, edit=True)
         
         # Download and forward the file
         file_id = submission["submission_data"].get("file_id")
@@ -269,7 +284,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await send_main_menu(update, context, edit=True)
     
     # Default case - return to main menu
-    return await send_main_menu(update, context)
+    return await send_main_menu(update, context, edit=True)
 
 async def handle_submission_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle feedback for a test submission"""
@@ -280,7 +295,7 @@ async def handle_submission_feedback(update: Update, context: ContextTypes.DEFAU
     
     if not submission_id or not status:
         await update.message.reply_text("Произошла ошибка. Пожалуйста, начните процесс заново.")
-        return await send_main_menu(update, context)
+        return await send_main_menu(update, context, edit=True)
     
     # Update submission status in database
     result = db.update_test_submission(submission_id, status, feedback)
@@ -298,7 +313,7 @@ async def handle_submission_feedback(update: Update, context: ContextTypes.DEFAU
     else:
         await update.message.reply_text("Произошла ошибка при обновлении статуса заявки.")
     
-    return await send_main_menu(update, context)
+    return await send_main_menu(update, context, edit=True)
 
 async def handle_interview_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle response for an interview request"""
@@ -309,7 +324,7 @@ async def handle_interview_response(update: Update, context: ContextTypes.DEFAUL
     
     if not request_id or not status:
         await update.message.reply_text("Произошла ошибка. Пожалуйста, начните процесс заново.")
-        return await send_main_menu(update, context)
+        return await send_main_menu(update, context, edit=True)
     
     # Update request status in database
     result = db.update_interview_request(request_id, status, response)
@@ -327,7 +342,7 @@ async def handle_interview_response(update: Update, context: ContextTypes.DEFAUL
     else:
         await update.message.reply_text("Произошла ошибка при обновлении статуса запроса.")
     
-    return await send_main_menu(update, context)
+    return await send_main_menu(update, context, edit=True)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /help is issued."""
@@ -343,7 +358,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show the main menu when the command /menu is issued."""
-    return await send_main_menu(update, context)
+    return await send_main_menu(update, context, edit=True)
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle unknown commands."""
