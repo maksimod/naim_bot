@@ -1136,12 +1136,12 @@ async def send_stopword_question(update, context):
         if hasattr(update, 'callback_query') and update.callback_query:
             # Отправляем сообщение о генерации
             await update.callback_query.edit_message_text(
-                f"⏳ Генерирую предложение для стоп-слова '{current_stopword.get('word', '')}'..."
+                f"⏳ Генерирую предложение..."
             )
         elif update.effective_message:
             # Отправляем как новое сообщение
             await update.effective_message.reply_text(
-                f"⏳ Генерирую предложение для стоп-слова '{current_stopword.get('word', '')}'..."
+                f"⏳ Генерирую предложение..."
             )
         
         try:
