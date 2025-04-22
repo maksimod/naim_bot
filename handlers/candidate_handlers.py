@@ -308,17 +308,28 @@ async def send_test_question(update, context, edit_message=False):
     
     question = questions[current_question]
     
-    # Формируем текст вопроса с учетом таймера
-    if time_limit is not None:
-        question_text = f"Времени осталось: {time_str}\nВопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}"
-    else:
-        question_text = f"Вопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}"
-    
-    # Create answers as buttons, поддерживаем оба формата: answers и options
-    keyboard = []
+    # Get the options/answers
     options = question.get('options', question.get('answers', []))
+    
+    # Формируем текст вопроса с учетом таймера и вариантами ответов
+    if time_limit is not None:
+        question_text = f"Времени осталось: {time_str}\nВопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}\n\nВарианты ответов:"
+    else:
+        question_text = f"Вопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}\n\nВарианты ответов:"
+    
+    # Add numbered answer choices to the question text
     for i, answer in enumerate(options):
-        keyboard.append([InlineKeyboardButton(f"{i+1}. {answer}", callback_data=f"answer_{i}")])
+        question_text += f"\n{i+1}. {answer}"
+    
+    # Create keyboard with just the numbers
+    keyboard = []
+    row = []
+    for i in range(len(options)):
+        # Add up to 3 buttons per row
+        row.append(InlineKeyboardButton(f"{i+1}", callback_data=f"answer_{i}"))
+        if len(row) == 3 or i == len(options) - 1:
+            keyboard.append(row)
+            row = []
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1323,6 +1334,118 @@ def format_time(seconds):
     minutes, seconds = divmod(int(seconds), 60)
     return f"{minutes:02d}:{seconds:02d}"
 
+def get_test_time_limit(test_name):
+    """Возвращает ограничение по времени для указанного теста в секундах"""
+    # По умолчанию нет ограничения по времени
+    if not test_name:
+        return None
+        
+    # Задаем ограничения по времени для разных тестов
+    time_limits = {
+        "primary_test": 300,  # 5 минут
+        "where_to_start_test": 600,  # 10 минут
+        "logic_test_result": 1800,  # 30 минут
+        "interview_prep_test": 600,  # 10 минут
+        "take_test_result": 1200,  # 20 минут
+    }
+    
+    # Возвращаем ограничение по времени или None, если ограничения нет
+    return time_limits.get(test_name, None)
+
+async def update_timer(context):
+    """Обновляет таймер для тестов с ограничением времени"""
+    job_data = context.job.data
+    
+    # Получаем данные из параметров задания
+    chat_id = job_data.get("chat_id")
+    message_id = job_data.get("message_id")
+    questions = job_data.get("questions", [])
+    current_question = job_data.get("current_question")
+    end_time = job_data.get("end_time")
+    
+    # Получаем текущий контекст и обновление
+    update_obj = job_data.get("update")
+    context_obj = job_data.get("context_obj")
+    
+    # Проверяем, не изменился ли номер текущего вопроса в контексте
+    context_current_question = context_obj.user_data.get("current_question", 0)
+    
+    # Если номер вопроса изменился, останавливаем этот таймер
+    if context_current_question != current_question:
+        logger.info(f"Номер вопроса изменился: {current_question} -> {context_current_question}. Останавливаем таймер.")
+        context.job.schedule_removal()
+        return
+    
+    # Проверяем, не завершился ли уже тест
+    if "test_data" not in context_obj.user_data:
+        logger.info("Тест завершен. Останавливаем таймер.")
+        context.job.schedule_removal()
+        return
+    
+    # Вычисляем оставшееся время
+    now = time.time()
+    remaining = max(0, end_time - now)
+    
+    # Если время истекло, завершаем тест
+    if remaining <= 0:
+        logger.info("Время теста истекло. Завершаем тест.")
+        context.job.schedule_removal()
+        
+        # Заменяем сообщение на уведомление об истечении времени
+        try:
+            await context_obj.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="⏰ Время тестирования истекло! Пожалуйста, вернитесь в главное меню.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                ])
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении сообщения об истечении времени: {e}")
+        
+        # Вызываем функцию для обработки таймаута теста
+        asyncio.create_task(test_timeout(update_obj, context_obj))
+        return
+    
+    # Форматируем оставшееся время
+    time_str = format_time(remaining)
+    
+    try:
+        # Получаем текущий вопрос
+        question = questions[current_question]
+        options = question.get('options', question.get('answers', []))
+        
+        # Формируем текст вопроса с обновленным таймером
+        question_text = f"Времени осталось: {time_str}\nВопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}\n\nВарианты ответов:"
+        
+        # Добавляем варианты ответов в текст вопроса
+        for i, answer in enumerate(options):
+            question_text += f"\n{i+1}. {answer}"
+        
+        # Создаем клавиатуру только с номерами
+        keyboard = []
+        row = []
+        for i in range(len(options)):
+            # Добавляем до 3 кнопок в ряд
+            row.append(InlineKeyboardButton(f"{i+1}", callback_data=f"answer_{i}"))
+            if len(row) == 3 or i == len(options) - 1:
+                keyboard.append(row)
+                row = []
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Обновляем сообщение с вопросом
+        await context_obj.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=question_text,
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении таймера: {e}")
+        context.job.schedule_removal()
+
 async def update_stopwords_timer(context):
     """Обновляет таймер для теста стоп-слов"""
     job_data = context.job.data
@@ -1445,3 +1568,101 @@ async def update_stopwords_timer(context):
     except Exception as e:
         logger.error(f"Ошибка при обновлении таймера: {e}")
         context.job.schedule_removal()
+
+async def test_timeout(update, context):
+    """Handle the case when the test time expires"""
+    user_id = update.effective_user.id
+    test_name = context.user_data.get("current_test")
+    
+    # Check for admin mode
+    admin_mode = context.user_data.get("admin_mode", False)
+    
+    # Mark test as failed due to timeout
+    if admin_mode:
+        if "admin_test_results" not in context.user_data:
+            context.user_data["admin_test_results"] = {}
+        context.user_data["admin_test_results"][test_name] = False
+        logger.info(f"Admin mode: Test {test_name} failed due to timeout")
+    else:
+        # Save test result to database
+        db.update_test_result(user_id, test_name, False)
+        logger.info(f"User {user_id} failed test {test_name} due to timeout")
+    
+    # Determine which stages should be unlocked based on the test
+    # Unlock the next stage regardless of test result
+    next_stage = None
+    if test_name == "primary_test":
+        next_stage = "where_to_start"
+    elif test_name == "where_to_start_test":
+        next_stage = "logic_test"
+    elif test_name == "logic_test_result":
+        next_stage = "preparation_materials"
+    elif test_name == "take_test_result":
+        next_stage = "interview_prep"
+    
+    # Unlock the next stage in regular mode
+    if next_stage and not admin_mode:
+        db.unlock_stage(user_id, next_stage)
+    
+    # Show timeout message
+    result_message = (
+        f"⏰ Время на выполнение теста истекло!\n\n"
+        f"К сожалению, вы не успели завершить тест вовремя.\n"
+        f"Тест отмечен как не пройденный, но вы можете продолжить\n"
+        f"с следующим этапом в программе найма."
+    )
+    
+    # Add buttons for next steps
+    keyboard = [
+        [InlineKeyboardButton("📋 Вернуться в главное меню", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Clean up test data from context
+    if "current_test" in context.user_data:
+        del context.user_data["current_test"]
+    if "test_data" in context.user_data:
+        del context.user_data["test_data"]
+    if "current_question" in context.user_data:
+        del context.user_data["current_question"]
+    if "correct_answers" in context.user_data:
+        del context.user_data["correct_answers"]
+    if "test_start_time" in context.user_data:
+        del context.user_data["test_start_time"]
+    if "test_end_time" in context.user_data:
+        del context.user_data["test_end_time"]
+    if "timer_data" in context.user_data:
+        del context.user_data["timer_data"]
+    
+    # Stop timer if it exists
+    if "test_timer_job" in context.user_data:
+        try:
+            context.user_data["test_timer_job"].schedule_removal()
+            logger.info("Timer stopped due to test timeout")
+        except Exception as e:
+            logger.error(f"Error stopping timer due to timeout: {e}")
+        del context.user_data["test_timer_job"]
+    
+    try:
+        # Try to edit the last test message if possible
+        if "test_message_id" in context.user_data:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=context.user_data["test_message_id"],
+                    text=result_message,
+                    reply_markup=reply_markup
+                )
+                return CandidateStates.MAIN_MENU
+            except Exception as e:
+                logger.error(f"Error editing message in test timeout: {e}")
+        
+        # Send as a new message if editing fails
+        await update.effective_chat.send_message(
+            text=result_message,
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error(f"Error sending test timeout message: {e}")
+    
+    return CandidateStates.MAIN_MENU
