@@ -374,11 +374,11 @@ async def send_test_question(update, context, edit_message=False):
         job_data = {
             "chat_id": update.effective_chat.id,
             "message_id": message_id,
-            "questions": questions,
             "current_question": current_question,
             "end_time": context.user_data["test_end_time"],
             "update": update,
-            "context_obj": context
+            "context_obj": context,
+            "current_message_text": question_text  # Сохраняем текст вопроса для обновления таймера
         }
         
         try:
@@ -1352,7 +1352,6 @@ async def update_timer(context):
     # Получаем данные из параметров задания
     chat_id = job_data.get("chat_id")
     message_id = job_data.get("message_id")
-    questions = job_data.get("questions", [])
     current_question = job_data.get("current_question")
     end_time = job_data.get("end_time")
     
@@ -1405,36 +1404,63 @@ async def update_timer(context):
     time_str = format_time(remaining)
     
     try:
-        # Получаем текущий вопрос
-        question = questions[current_question]
-        options = question.get('options', question.get('answers', []))
+        # Получаем текущий текст сообщения
+        current_message_text = job_data.get("current_message_text", "")
+        if not current_message_text:
+            # Если текст сообщения недоступен, прекращаем обновление
+            logger.error("Текст сообщения недоступен для обновления таймера")
+            context.job.schedule_removal()
+            return
         
-        # Формируем текст вопроса с обновленным таймером
-        question_text = f"Времени осталось: {time_str}\nВопрос {current_question + 1} из {len(questions)}:\n\n{question['question']}\n\nВарианты ответов:"
-        
-        # Добавляем варианты ответов в текст вопроса
-        for i, answer in enumerate(options):
-            question_text += f"\n{i+1}. {answer}"
-        
-        # Создаем клавиатуру только с номерами
-        keyboard = []
-        row = []
-        for i in range(len(options)):
-            # Добавляем до 3 кнопок в ряд
-            row.append(InlineKeyboardButton(f"{i+1}", callback_data=f"answer_{i}"))
-            if len(row) == 3 or i == len(options) - 1:
-                keyboard.append(row)
-                row = []
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Обновляем сообщение с вопросом
-        await context_obj.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=question_text,
-            reply_markup=reply_markup
-        )
+        # Обновляем только строку с временем, остальной текст сохраняем
+        lines = current_message_text.split('\n')
+        if len(lines) > 0:
+            # Заменяем только первую строку с таймером
+            if "Времени осталось:" in lines[0]:
+                lines[0] = f"Времени осталось: {time_str}"
+                updated_text = '\n'.join(lines)
+                
+                # Сохраняем последний известный текст сообщения для следующего обновления
+                job_data["current_message_text"] = updated_text
+                
+                # Получаем текущие данные из контекста
+                test_data = context_obj.user_data.get("test_data", {})
+                current_question = context_obj.user_data.get("current_question", 0)
+                
+                # Получаем вопросы из test_data
+                questions = []
+                if isinstance(test_data, dict) and "questions" in test_data:
+                    questions = test_data["questions"]
+                else:
+                    questions = test_data
+                
+                if current_question < len(questions):
+                    question = questions[current_question]
+                    options = question.get('options', question.get('answers', []))
+                    
+                    # Создаем клавиатуру только с номерами
+                    keyboard = []
+                    row = []
+                    for i in range(len(options)):
+                        # Добавляем до 3 кнопок в ряд
+                        row.append(InlineKeyboardButton(f"{i+1}", callback_data=f"answer_{i}"))
+                        if len(row) == 3 or i == len(options) - 1:
+                            keyboard.append(row)
+                            row = []
+                    
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Обновляем сообщение с сохранением тех же кнопок
+                    await context_obj.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=updated_text,
+                        reply_markup=reply_markup
+                    )
+            else:
+                logger.warning("Не удалось найти строку с таймером для обновления")
+        else:
+            logger.warning("Текст сообщения пуст")
     except Exception as e:
         logger.error(f"Ошибка при обновлении таймера: {e}")
         context.job.schedule_removal()
@@ -1506,28 +1532,17 @@ async def update_stopwords_timer(context):
         # Получаем текущий текст из контекста, если он сохранен
         current_message_text = job_data.get("current_message_text", "")
         
-        # Если текст не сохранен, создаем базовый шаблон
+        # Если текст не сохранен, предполагаем проблему и останавливаем таймер
         if not current_message_text:
-            # Используем текущее сообщение о вопросе как шаблон
-            current_stopword = context_obj.user_data.get("current_stopword", {})
-            word = current_stopword.get("word", "")
-            sentence = current_stopword.get("sentence", "")
-            
-            current_message_text = (
-                f"⏱ Времени осталось: {time_str}\n\n"
-                f"Вопрос {current_question + 1} из {len(stopwords)}:\n\n"
-                f"<b>Предложение:</b> {sentence}\n\n"
-                f"Переформулируйте предложение так, чтобы избежать использования стоп-слова, но сохранить смысл. Если стоп-слова отсутсвуют, напишите предложение без изменений"
-            )
-            # Сохраняем шаблон в данных задачи для последующих обновлений
-            job_data["current_message_text"] = current_message_text
+            logger.error("Текст сообщения недоступен для обновления таймера стоп-слов")
+            context.job.schedule_removal()
+            return
         
-        # Обновляем только строку со временем
-        if "⏱ Времени осталось:" in current_message_text:
-            updated_text = current_message_text.replace(
-                current_message_text.splitlines()[0], 
-                f"⏱ Времени осталось: {time_str}"
-            )
+        # Обновляем только строку с временем
+        lines = current_message_text.split('\n')
+        if len(lines) > 0 and "⏱ Времени осталось:" in lines[0]:
+            lines[0] = f"⏱ Времени осталось: {time_str}"
+            updated_text = '\n'.join(lines)
             
             # Сохраняем обновленный текст для следующего обновления
             job_data["current_message_text"] = updated_text
@@ -1540,25 +1555,9 @@ async def update_stopwords_timer(context):
                 parse_mode='HTML'
             )
         else:
-            # Если формат сообщения изменился, просто добавляем время вверху
-            prefix_time = f"⏱ Времени осталось: {time_str}\n\n"
-            if not current_message_text.startswith("⏱ Времени осталось:"):
-                updated_text = prefix_time + current_message_text
-            else:
-                updated_text = current_message_text
-            
-            # Обновляем сообщение
-            await context_obj.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=updated_text,
-                parse_mode='HTML'
-            )
-            
-            # Сохраняем обновленный текст для следующего обновления
-            job_data["current_message_text"] = updated_text
+            logger.warning("Не удалось найти строку с таймером в тесте стоп-слов")
     except Exception as e:
-        logger.error(f"Ошибка при обновлении таймера: {e}")
+        logger.error(f"Ошибка при обновлении таймера стоп-слов: {e}")
         context.job.schedule_removal()
 
 async def test_timeout(update, context):
