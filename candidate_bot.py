@@ -62,7 +62,7 @@ async def handle_interview_request(user_id, preferred_day, preferred_time):
     request_id = db.save_interview_request(user_id, preferred_day, preferred_time)
     
     # Get user info for notification
-    user_info = db.send_interview_notification_to_recruiter(user_id, preferred_day, preferred_time)
+    user_info = db.get_user_info_with_interview_details(user_id, preferred_day, preferred_time)
     
     if user_info and request_id:
         # Create recruiter bot instance to send notification
@@ -70,7 +70,7 @@ async def handle_interview_request(user_id, preferred_day, preferred_time):
             from telegram import Bot
             recruiter_bot = Bot(token=RECRUITER_BOT_TOKEN)
             
-            # Получаем информацию для отображения
+            # Get display info
             display_name = user_info.get('display_name', f"Пользователь {user_id}")
             username_display = f" (@{user_info['username']})" if user_info.get('username') else ""
             
@@ -83,19 +83,22 @@ async def handle_interview_request(user_id, preferred_day, preferred_time):
                 f"Используйте меню 'Запросы на собеседование' для управления."
             )
             
-            # Send to recruiter channel/chat (replace with actual admin user ID or channel ID)
-            # This would typically be a specific admin user or chat where recruiters monitor
-            admin_user_id = os.getenv("ADMIN_USER_ID", "")  # Get from environment variables
+            # Get all recruiters and send notification to each
+            recruiters = db.get_all_recruiters()
             
-            if admin_user_id and admin_user_id.isdigit():
-                await recruiter_bot.send_message(
-                    chat_id=int(admin_user_id),
-                    text=notification,
-                    parse_mode='Markdown'
-                )
-                logger.info(f"Interview request notification sent to admin for user {user_id}")
+            if recruiters:
+                for recruiter in recruiters:
+                    try:
+                        await recruiter_bot.send_message(
+                            chat_id=recruiter['user_id'],
+                            text=notification,
+                            parse_mode='Markdown'
+                        )
+                        logger.info(f"Interview request notification sent to recruiter {recruiter['user_id']} for user {user_id}")
+                    except Exception as e:
+                        logger.error(f"Error sending notification to recruiter {recruiter['user_id']}: {e}")
             else:
-                logger.warning("Admin user ID not configured, could not send notification")
+                logger.warning("No recruiters found, could not send notification")
                 
         except Exception as e:
             logger.error(f"Error sending interview notification: {e}")

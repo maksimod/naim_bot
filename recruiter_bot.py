@@ -42,10 +42,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     user_id = update.effective_user.id
     
-    # Отправляем сообщение с ID пользователя
+    # Register user as a recruiter
+    db.register_recruiter(
+        user_id, 
+        update.effective_user.username,
+        update.effective_user.first_name,
+        update.effective_user.last_name
+    )
+    
+    # Send welcome message
     await update.message.reply_text(
-        f"Ваш ID для настройки уведомлений: {user_id}\n\n"
-        "Пожалуйста, скопируйте этот ID и вставьте его в файл .env в переменную ADMIN_USER_ID"
+        "Добро пожаловать в панель рекрутера! Вы автоматически зарегистрированы для получения уведомлений о новых кандидатах."
     )
     
     # Показываем главное меню

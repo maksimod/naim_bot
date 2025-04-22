@@ -63,6 +63,17 @@ def init_db():
     )
     ''')
     
+    # Create recruiters table
+    cursor.execute(f'''
+    CREATE TABLE IF NOT EXISTS {BOT_PREFIX}recruiters (
+        user_id BIGINT PRIMARY KEY,
+        username TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
     # Create table for test submissions
     cursor.execute(f'''
     CREATE TABLE IF NOT EXISTS {BOT_PREFIX}test_submissions (
@@ -602,3 +613,77 @@ def mark_message_read(message_id):
     
     conn.commit()
     conn.close()
+
+def register_recruiter(user_id, username, first_name, last_name):
+    """Register a new recruiter or update existing recruiter information"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Check if recruiter exists
+    cursor.execute(f'SELECT user_id FROM {BOT_PREFIX}recruiters WHERE user_id = %s', (user_id,))
+    user = cursor.fetchone()
+    
+    if not user:
+        cursor.execute(
+            f'INSERT INTO {BOT_PREFIX}recruiters (user_id, username, first_name, last_name) VALUES (%s, %s, %s, %s)',
+            (user_id, username, first_name, last_name)
+        )
+    else:
+        cursor.execute(
+            f'UPDATE {BOT_PREFIX}recruiters SET username = %s, first_name = %s, last_name = %s WHERE user_id = %s',
+            (username, first_name, last_name, user_id)
+        )
+    
+    conn.commit()
+    conn.close()
+
+def get_all_recruiters():
+    """Get all recruiters from the database"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute(f'SELECT user_id, username, first_name, last_name FROM {BOT_PREFIX}recruiters')
+    
+    recruiters = []
+    for row in cursor.fetchall():
+        recruiters.append({
+            'user_id': row[0],
+            'username': row[1],
+            'first_name': row[2],
+            'last_name': row[3]
+        })
+    
+    conn.close()
+    return recruiters
+
+def get_user_info_with_interview_details(user_id, preferred_day, preferred_time):
+    """Get user information and interview details for notifications"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute(f'SELECT username, first_name, last_name FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    
+    user_info = {}
+    
+    if result:
+        username, first_name, last_name = result
+        display_name = f"{first_name or ''} {last_name or ''}".strip()
+        
+        # If no name, use username or default
+        if not display_name and username:
+            display_name = username
+        elif not display_name:
+            display_name = f"Пользователь {user_id}"
+        
+        user_info = {
+            'username': username,
+            'first_name': first_name,
+            'last_name': last_name,
+            'display_name': display_name,
+            'preferred_day': preferred_day,
+            'preferred_time': preferred_time
+        }
+    
+    return user_info
