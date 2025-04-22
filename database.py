@@ -687,3 +687,37 @@ def get_user_info_with_interview_details(user_id, preferred_day, preferred_time)
         }
     
     return user_info
+
+def reset_user_progress(user_id):
+    """Reset all progress for a user to the initial state"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Reset unlocked stages to default (only about_company and primary_file)
+    default_stages = json.dumps([
+        'about_company',
+        'primary_file'
+    ])
+    
+    # Reset user's unlocked stages and test results
+    cursor.execute(
+        f'UPDATE {BOT_PREFIX}users SET unlocked_stages = %s, current_test_results = NULL WHERE user_id = %s',
+        (default_stages, user_id)
+    )
+    
+    # Mark all test submissions as invalidated
+    cursor.execute(
+        f'UPDATE {BOT_PREFIX}test_submissions SET status = %s WHERE user_id = %s',
+        ('invalidated', user_id)
+    )
+    
+    # Cancel all pending interview requests
+    cursor.execute(
+        f'UPDATE {BOT_PREFIX}interview_requests SET status = %s, recruiter_response = %s WHERE user_id = %s AND status = %s',
+        ('cancelled', 'Автоматическая отмена: пользователь сбросил прогресс', user_id, 'pending')
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return True

@@ -643,6 +643,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
     
+    # Проверяем секретную команду для сброса прогресса
+    if text == "!reload2!":
+        # Сбрасываем прогресс пользователя в базе данных
+        db.reset_user_progress(user_id)
+        
+        # Очищаем данные пользователя в контексте
+        context.user_data.clear()
+        
+        await update.message.reply_text(
+            "🔄 Ваш прогресс был полностью сброшен. Все тесты, результаты и разблокированные этапы возвращены к начальному состоянию."
+        )
+        
+        # Отправляем главное меню
+        return await send_main_menu(update, context)
+    
     # Проверяем, ожидается ли ответ в тесте на стоп-слова
     if context.user_data.get("awaiting_stopword_answer", False):
         return await process_stopword_answer(update, context, text)
