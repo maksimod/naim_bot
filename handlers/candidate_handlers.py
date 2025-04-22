@@ -753,9 +753,6 @@ async def process_stopword_answer(update, context, text):
         result_emoji = "✅" if passed else "❌"
         result_message = (
             f"{result_emoji} {feedback}\n\n"
-            f"Исходное предложение: <b>{original_sentence}</b>\n"
-            f"Стоп-слово: <b>{stopword}</b>\n"
-            f"Ваш ответ: <b>{text}</b>"
         )
         
         # Обновляем счетчик правильных ответов
@@ -946,9 +943,6 @@ async def handle_stopword_answer(update, context):
     result_emoji = "✅" if is_correct else "❌"
     result_message = (
         f"{result_emoji} {'Правильно!' if is_correct else 'Неправильно!'}\n\n"
-        f"Исходное предложение: <b>{original_sentence}</b>\n"
-        f"Стоп-слово: <b>{stopword}</b>\n"
-        f"Ваш ответ: <b>{selected_answer}</b>"
     )
     
     # Отправляем сообщение с результатом
@@ -1192,8 +1186,7 @@ async def send_stopword_question(update, context):
         f"⏱ Времени осталось: {time_str}\n\n"
         f"Вопрос {current_question_idx + 1} из {len(all_stopwords)}:\n\n"
         f"<b>Предложение:</b> {sentence}\n\n"
-        f"<b>Стоп-слово:</b> {word}\n\n"
-        f"Переформулируйте предложение так, чтобы избежать использования стоп-слова, но сохранить смысл."
+        f"Переформулируйте предложение так, чтобы избежать использования стоп-слова, но сохранить смысл. Если стоп-слова отсутсвуют, напишите предложение без изменений"
     )
     
     # Сохраняем текущее стоп-слово в контексте для последующей проверки ответа
@@ -1524,8 +1517,7 @@ async def update_stopwords_timer(context):
                 f"⏱ Времени осталось: {time_str}\n\n"
                 f"Вопрос {current_question + 1} из {len(stopwords)}:\n\n"
                 f"<b>Предложение:</b> {sentence}\n\n"
-                f"<b>Стоп-слово:</b> {word}\n\n"
-                f"Переформулируйте предложение так, чтобы избежать использования стоп-слова, но сохранить смысл."
+                f"Переформулируйте предложение так, чтобы избежать использования стоп-слова, но сохранить смысл. Если стоп-слова отсутсвуют, напишите предложение без изменений"
             )
             # Сохраняем шаблон в данных задачи для последующих обновлений
             job_data["current_message_text"] = current_message_text
