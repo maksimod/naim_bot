@@ -22,15 +22,26 @@ logger = logging.getLogger(__name__)
 db.init_db()
 
 # Helper functions
-async def send_main_menu(update, context):
+async def send_main_menu(update, context, edit=False):
     """Send the main menu with options for the recruiter"""
     keyboard = [
-        [InlineKeyboardButton("Проверить тестовые задания", callback_data="review_tests")],
-        [InlineKeyboardButton("Запросы на собеседование", callback_data="interview_requests")],
         [InlineKeyboardButton("Просмотр метрик", callback_data="view_metrics")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Если edit=True и есть callback_query, редактируем текущее сообщение
+    if edit and hasattr(update, 'callback_query') and update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(
+                "Панель рекрутера. Выберите действие:",
+                reply_markup=reply_markup
+            )
+            return RecruiterStates.MAIN_MENU
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            # Если редактирование не удалось, отправляем новое сообщение
+    
+    # Отправляем новое сообщение
     await update.effective_message.reply_text(
         "Добро пожаловать в панель рекрутера. Выберите действие:",
         reply_markup=reply_markup
@@ -50,11 +61,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_user.last_name
     )
     
-    # Send welcome message
-    await update.message.reply_text(
-        "Добро пожаловать в панель рекрутера! Вы автоматически зарегистрированы для получения уведомлений о новых кандидатах."
-    )
-    
+   
     # Показываем главное меню
     return await send_main_menu(update, context)
 
@@ -64,34 +71,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    if query.data == "review_tests":
-        # Get pending test submissions
-        submissions = db.get_pending_submissions()
-        
-        if not submissions:
-            await query.message.reply_text("В настоящее время нет ожидающих проверки тестовых заданий.")
-            return await send_main_menu(update, context)
-        
-        # Display list of submissions
-        await query.message.reply_text("Тестовые задания, ожидающие проверки:")
-        
-        for submission in submissions:
-            keyboard = [
-                [InlineKeyboardButton("Просмотреть", callback_data=f"view_submission_{submission['id']}")],
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.message.reply_text(
-                f"ID: {submission['id']}\n"
-                f"Кандидат: {submission['candidate_name']}\n"
-                f"Тип теста: {submission['test_type']}\n"
-                f"Файл: {submission['submission_data'].get('file_name', 'Не указан')}",
-                reply_markup=reply_markup
-            )
-        
-        return RecruiterStates.REVIEW_TEST
-    
-    elif query.data == "view_metrics":
+    if query.data == "view_metrics":
         # Get metrics from database
         metrics = db.get_metrics()
         
@@ -175,30 +155,79 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         requests = db.get_pending_interview_requests()
         
         if not requests:
-            await query.message.reply_text("В настоящее время нет запросов на собеседование.")
-            return await send_main_menu(update, context)
+            # Если нет запросов, редактируем текущее сообщение
+            try:
+                await query.edit_message_text(
+                    "В настоящее время нет запросов на собеседование.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_menu")]])
+                )
+                return RecruiterStates.MAIN_MENU
+            except Exception as e:
+                logger.error(f"Error editing message: {e}")
+                await query.message.reply_text(
+                    "В настоящее время нет запросов на собеседование.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_menu")]])
+                )
+                return RecruiterStates.MAIN_MENU
         
-        # Display list of interview requests
-        await query.message.reply_text("Запросы на собеседование:")
-        
-        for request in requests:
-            keyboard = [
-                [InlineKeyboardButton("Подтвердить", callback_data=f"approve_interview_{request['id']}")],
-                [InlineKeyboardButton("Отклонить", callback_data=f"reject_interview_{request['id']}")],
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+        # Если есть запросы, тоже редактируем сообщение со списком запросов
+        try:
+            requests_text = "Запросы на собеседование:\n\n"
+            for request in requests:
+                requests_text += (
+                    f"ID: {request['id']}\n"
+                    f"Кандидат: {request['candidate_name']}\n"
+                    f"Предпочтительный день: {request['preferred_day']}\n"
+                    f"Предпочтительное время: {request['preferred_time']}\n\n"
+                )
             
-            await query.message.reply_text(
-                f"ID: {request['id']}\n"
-                f"Кандидат: {request['candidate_name']}\n"
-                f"Предпочтительный день: {request['preferred_day']}\n"
-                f"Предпочтительное время: {request['preferred_time']}",
-                reply_markup=reply_markup
+            keyboard = []
+            for request in requests:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"Подтвердить #{request['id']}", 
+                        callback_data=f"approve_interview_{request['id']}"
+                    )
+                ])
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"Отклонить #{request['id']}", 
+                        callback_data=f"reject_interview_{request['id']}"
+                    )
+                ])
+            
+            keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_to_menu")])
+            
+            # Редактируем сообщение
+            await query.edit_message_text(
+                requests_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
+            return RecruiterStates.SCHEDULE_INTERVIEW
+        except Exception as e:
+            logger.error(f"Error editing message for interview requests: {e}")
+            
+            # Если не удалось отредактировать, отправляем как новые сообщения
+            await query.message.reply_text("Запросы на собеседование:")
+            
+            for request in requests:
+                keyboard = [
+                    [InlineKeyboardButton("Подтвердить", callback_data=f"approve_interview_{request['id']}")],
+                    [InlineKeyboardButton("Отклонить", callback_data=f"reject_interview_{request['id']}")],
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.message.reply_text(
+                    f"ID: {request['id']}\n"
+                    f"Кандидат: {request['candidate_name']}\n"
+                    f"Предпочтительный день: {request['preferred_day']}\n"
+                    f"Предпочтительное время: {request['preferred_time']}",
+                    reply_markup=reply_markup
+                )
+            
+            return RecruiterStates.SCHEDULE_INTERVIEW
         
-        return RecruiterStates.SCHEDULE_INTERVIEW
-    
-    elif query.data.startswith("view_submission_"):
+    if query.data.startswith("view_submission_"):
         submission_id = int(query.data.split("_")[2])
         
         # Store submission ID in context for future reference
@@ -234,6 +263,10 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         return RecruiterStates.REVIEW_TEST
+    
+    elif query.data == "back_to_menu":
+        # Редактируем текущее сообщение, превращая его в главное меню
+        return await send_main_menu(update, context, edit=True)
     
     # Default case - return to main menu
     return await send_main_menu(update, context)

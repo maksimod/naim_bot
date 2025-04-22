@@ -1082,7 +1082,12 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Back to menu from any section
     elif query.data == "back_to_menu":
-        # Вместо удаления сообщения, просто редактируем его
+        # Редактируем текущее сообщение вместо отправки нового
+        return await send_main_menu(update, context, edit=True)
+    
+    # Обработка кнопки "Назад" в других местах, если такая кнопка используется
+    elif query.data == "back":
+        # Также используем редактирование текущего сообщения
         return await send_main_menu(update, context, edit=True)
     
     # Default - return to main menu
