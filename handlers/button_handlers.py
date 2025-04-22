@@ -68,7 +68,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Menu options with emoji status controlled by send_main_menu
     menu_options = [
-        ("about_company", "🟢 Узнать о компании"),
+        ("about_company", "🔵 Узнать о компании"),
         ("primary_file", "🟢 Первичный файл"),
         ("where_to_start", "🔴 С чего начать"),
         ("preparation_materials", "🔴 Материалы для подготовки"),

@@ -48,6 +48,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.unlock_stage(user_id, "about_company")
         db.unlock_stage(user_id, "primary_file")
     
+    # Читаем и отправляем приветственное сообщение
+    from utils.helpers import load_text_content
+    welcome_message = load_text_content("welcome_message.txt")
+    await update.message.reply_text(welcome_message)
+    
     # Отправляем главное меню
     return await send_main_menu(update, context)
 
