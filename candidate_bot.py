@@ -189,7 +189,10 @@ def main():
     application.add_handler(CommandHandler("menu", send_main_menu))
     
     # Обработчики для меню
-    application.add_handler(CallbackQueryHandler(send_main_menu, pattern="^back_to_menu$"))
+    application.add_handler(CallbackQueryHandler(
+        lambda update, context: send_main_menu(update, context, edit=True), 
+        pattern="^back_to_menu$"
+    ))
     
     # Обработчики для раздела "С чего начать"
     application.add_handler(CallbackQueryHandler(handle_where_to_start, pattern="^where_to_start$"))

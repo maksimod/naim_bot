@@ -111,7 +111,7 @@ async def send_main_menu(update, context, message=None, edit=False):
         if not message:
             message = "Главное меню (Режим администратора):"
         
-        # Try to edit the existing message if needed
+        # Always try to edit the existing message first if we have a callback query and edit=True
         if edit and hasattr(update, 'callback_query') and update.callback_query:
             try:
                 # Try to edit the current message
@@ -119,10 +119,47 @@ async def send_main_menu(update, context, message=None, edit=False):
                     text=message,
                     reply_markup=reply_markup
                 )
+                # Сохраняем ID отредактированного сообщения как main_menu_message_id
+                context.user_data["main_menu_message_id"] = update.callback_query.message.message_id
                 return CandidateStates.MAIN_MENU
             except Exception as e:
                 logger.error(f"Error editing message via callback query: {e}")
                 # Fall through to other methods if this fails
+        
+        # Если у нас есть content_message_id (т.е. мы в разделе вроде "Узнать о компании"), 
+        # редактируем это сообщение при возврате в меню
+        if edit and context.user_data.get("content_message_id"):
+            try:
+                # Редактируем сообщение раздела, превращая его в главное меню
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=context.user_data["content_message_id"],
+                    text=message,
+                    reply_markup=reply_markup
+                )
+                # После успешного редактирования удаляем content_message_id,
+                # так как это сообщение теперь стало главным меню
+                context.user_data["main_menu_message_id"] = context.user_data["content_message_id"]
+                del context.user_data["content_message_id"]
+                return CandidateStates.MAIN_MENU
+            except Exception as e:
+                logger.error(f"Error editing content message: {e}")
+                # Если не удалось, пробуем другие методы
+                
+        # Try to edit the last main menu message if we have its ID
+        if edit and context.user_data.get("main_menu_message_id"):
+            try:
+                # Try to edit the existing menu message
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=context.user_data["main_menu_message_id"],
+                    text=message,
+                    reply_markup=reply_markup
+                )
+                return CandidateStates.MAIN_MENU
+            except Exception as e:
+                logger.error(f"Error editing main menu message: {e}")
+                # If editing fails, continue to send a new message
         
         # Send a new message if editing is not possible or not requested
         menu_message = await update.effective_message.reply_text(message, reply_markup=reply_markup)

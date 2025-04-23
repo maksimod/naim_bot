@@ -1082,11 +1082,17 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Back to menu from any section
     elif query.data == "back_to_menu":
+        # Сохраняем ID текущего сообщения, если его нет в контексте
+        if not context.user_data.get("content_message_id"):
+            context.user_data["content_message_id"] = query.message.message_id
         # Редактируем текущее сообщение вместо отправки нового
         return await send_main_menu(update, context, edit=True)
     
     # Обработка кнопки "Назад" в других местах, если такая кнопка используется
     elif query.data == "back":
+        # Сохраняем ID текущего сообщения, если его нет в контексте
+        if not context.user_data.get("content_message_id"):
+            context.user_data["content_message_id"] = query.message.message_id
         # Также используем редактирование текущего сообщения
         return await send_main_menu(update, context, edit=True)
     
