@@ -592,6 +592,17 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if selected_options:
             selected_text = "\n".join([f"- {survey_options[i]}" for i in selected_options])
             response_text = f"Спасибо за ваши ответы!\n\nВыбранные варианты:\n{selected_text}"
+            
+            # Сохраняем информацию о выбранных нейросетях в базу данных
+            user_id = update.effective_user.id
+            
+            # Для каждого выбранного варианта записываем использование соответствующей нейросети
+            for i in selected_options:
+                if i < len(survey_options) and survey_options[i] != "Никакими из перечисленных":
+                    # Предполагаем, что каждая нейросеть использовалась по умолчанию 1 раз
+                    # Если нужно другое значение, здесь можно изменить логику
+                    db.record_ai_usage(user_id, survey_options[i])
+                    
         else:
             response_text = "Вы не выбрали ни одного варианта. Ответы не сохранены."
         
