@@ -386,13 +386,12 @@ def main():
     # Create the Application
     application = Application.builder().token(RECRUITER_BOT_TOKEN).build()
     
-    # Add conversation handler with states
+    # Добавляем ConversationHandler (должен иметь приоритет)
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
             RecruiterStates.MAIN_MENU: [
-                CallbackQueryHandler(button_click),
-                CommandHandler("menu", menu_command),
+                CallbackQueryHandler(button_click, pattern="^(?!(view_metrics|back_to_menu)$).*$"),  # Исключаем view_metrics и back_to_menu
             ],
             RecruiterStates.REVIEW_TEST: [
                 CallbackQueryHandler(button_click),
@@ -408,14 +407,31 @@ def main():
             ],
         },
         fallbacks=[
-            CommandHandler("help", help_command),
-            CommandHandler("menu", menu_command),
             MessageHandler(filters.COMMAND, unknown_command),
             MessageHandler(filters.ALL, unknown_message),
         ],
     )
     
+    # Добавляем ConversationHandler (должен иметь приоритет)
     application.add_handler(conv_handler)
+    
+    # Добавляем обработчик для команды /menu вне ConversationHandler
+    application.add_handler(CommandHandler("menu", menu_command))
+    
+    # Добавляем обработчик для команды /help вне ConversationHandler
+    application.add_handler(CommandHandler("help", help_command))
+    
+    # Добавляем обработчик для кнопки "Просмотр метрик", который работает вне ConversationHandler
+    application.add_handler(CallbackQueryHandler(
+        lambda update, context: button_click(update, context), 
+        pattern="^view_metrics$"
+    ))
+    
+    # Добавляем обработчик для кнопки "Назад", который работает вне ConversationHandler
+    application.add_handler(CallbackQueryHandler(
+        lambda update, context: send_main_menu(update, context, edit=True), 
+        pattern="^back_to_menu$"
+    ))
     
     # Start the Bot
     application.run_polling()
