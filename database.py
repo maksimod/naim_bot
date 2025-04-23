@@ -729,6 +729,12 @@ def reset_user_progress(user_id):
         ('cancelled', 'Автоматическая отмена: пользователь сбросил прогресс', user_id, 'pending')
     )
     
+    # Delete all AI usage information for this user
+    cursor.execute(
+        f'DELETE FROM {BOT_PREFIX}ai_usage WHERE user_id = %s',
+        (user_id,)
+    )
+    
     conn.commit()
     conn.close()
 
