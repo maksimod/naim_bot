@@ -115,6 +115,18 @@ def init_db():
     )
     ''')
     
+    # Create table for AI usage tracking
+    cursor.execute(f'''
+    CREATE TABLE IF NOT EXISTS {BOT_PREFIX}ai_usage (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
+        model_name TEXT,
+        usage_count INTEGER DEFAULT 1,
+        last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES {BOT_PREFIX}users(user_id)
+    )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -716,6 +728,58 @@ def reset_user_progress(user_id):
         f'UPDATE {BOT_PREFIX}interview_requests SET status = %s, recruiter_response = %s WHERE user_id = %s AND status = %s',
         ('cancelled', 'Автоматическая отмена: пользователь сбросил прогресс', user_id, 'pending')
     )
+    
+    conn.commit()
+    conn.close()
+
+def get_user_ai_usage(user_id):
+    """Get information about AI models used by a user"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        f'SELECT model_name, usage_count FROM {BOT_PREFIX}ai_usage WHERE user_id = %s',
+        (user_id,)
+    )
+    
+    results = cursor.fetchall()
+    conn.close()
+    
+    if results:
+        # Формируем словарь с моделями и их использованием
+        models = {}
+        for model_name, usage_count in results:
+            models[model_name] = usage_count
+        
+        return {'user_id': user_id, 'models': models}
+    else:
+        return {'user_id': user_id, 'models': {}}
+
+def record_ai_usage(user_id, model_name):
+    """Record that a user has used an AI model"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Check if this model has been used by this user before
+    cursor.execute(
+        f'SELECT id, usage_count FROM {BOT_PREFIX}ai_usage WHERE user_id = %s AND model_name = %s',
+        (user_id, model_name)
+    )
+    
+    result = cursor.fetchone()
+    
+    if result:
+        # Model has been used before, update the count
+        cursor.execute(
+            f'UPDATE {BOT_PREFIX}ai_usage SET usage_count = %s, last_used = CURRENT_TIMESTAMP WHERE id = %s',
+            (result[1] + 1, result[0])
+        )
+    else:
+        # First time usage, insert new record
+        cursor.execute(
+            f'INSERT INTO {BOT_PREFIX}ai_usage (user_id, model_name) VALUES (%s, %s)',
+            (user_id, model_name)
+        )
     
     conn.commit()
     conn.close()

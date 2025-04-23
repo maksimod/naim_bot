@@ -189,12 +189,53 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             requests_text = "Запросы на собеседование:\n\n"
             for request in requests:
+                # Получаем полную статистику тестов пользователя
+                user_id = request['user_id']
+                user_test_results = db.get_user_test_results(user_id)
+                
+                # Получаем информацию о нейросетях, которыми пользовался кандидат
+                ai_usage = db.get_user_ai_usage(user_id) if hasattr(db, 'get_user_ai_usage') else None
+                
+                # Формируем подробную информацию о кандидате
                 requests_text += (
                     f"ID: {request['id']}\n"
                     f"Кандидат: {request['candidate_name']}\n"
                     f"Предпочтительный день: {request['preferred_day']}\n"
                     f"Предпочтительное время: {request['preferred_time']}\n\n"
                 )
+                
+                # Добавляем статистику пройденных тестов
+                requests_text += "📊 Статистика тестов:\n"
+                if user_test_results:
+                    for test_name, result in user_test_results.items():
+                        test_display_name = test_name.replace('_', ' ').title()
+                        
+                        # Делаем имена тестов более читаемыми
+                        if test_name == 'primary_test':
+                            test_display_name = "Тест по первичному файлу"
+                        elif test_name == 'where_to_start_test':
+                            test_display_name = "Тест С чего начать"
+                        elif test_name == 'logic_test_result':
+                            test_display_name = "Тест на логику"
+                        elif test_name == 'take_test_result':
+                            test_display_name = "Испытание"
+                        elif test_name == 'interview_prep_test':
+                            test_display_name = "Подготовка к собеседованию"
+                        
+                        status = "✅ Успешно" if result else "❌ Не пройден"
+                        requests_text += f"  • {test_display_name}: {status}\n"
+                else:
+                    requests_text += "  • Нет данных по тестам\n"
+                
+                # Добавляем информацию о нейросетях
+                requests_text += "\n🤖 Использование нейросетей:\n"
+                if ai_usage and ai_usage.get('models'):
+                    for model_name, usage_count in ai_usage['models'].items():
+                        requests_text += f"  • {model_name}: {usage_count} раз\n"
+                else:
+                    requests_text += "  • Нет данных об использовании нейросетей\n"
+                
+                requests_text += "\n" + "-"*30 + "\n\n"
             
             keyboard = []
             for request in requests:
@@ -226,6 +267,52 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("Запросы на собеседование:")
             
             for request in requests:
+                # Получаем полную статистику тестов пользователя
+                user_id = request['user_id']
+                user_test_results = db.get_user_test_results(user_id)
+                
+                # Получаем информацию о нейросетях, которыми пользовался кандидат
+                ai_usage = db.get_user_ai_usage(user_id) if hasattr(db, 'get_user_ai_usage') else None
+                
+                # Формируем подробную информацию о кандидате
+                message_text = (
+                    f"ID: {request['id']}\n"
+                    f"Кандидат: {request['candidate_name']}\n"
+                    f"Предпочтительный день: {request['preferred_day']}\n"
+                    f"Предпочтительное время: {request['preferred_time']}\n\n"
+                )
+                
+                # Добавляем статистику пройденных тестов
+                message_text += "📊 Статистика тестов:\n"
+                if user_test_results:
+                    for test_name, result in user_test_results.items():
+                        test_display_name = test_name.replace('_', ' ').title()
+                        
+                        # Делаем имена тестов более читаемыми
+                        if test_name == 'primary_test':
+                            test_display_name = "Тест по первичному файлу"
+                        elif test_name == 'where_to_start_test':
+                            test_display_name = "Тест С чего начать"
+                        elif test_name == 'logic_test_result':
+                            test_display_name = "Тест на логику"
+                        elif test_name == 'take_test_result':
+                            test_display_name = "Испытание"
+                        elif test_name == 'interview_prep_test':
+                            test_display_name = "Подготовка к собеседованию"
+                        
+                        status = "✅ Успешно" if result else "❌ Не пройден"
+                        message_text += f"  • {test_display_name}: {status}\n"
+                else:
+                    message_text += "  • Нет данных по тестам\n"
+                
+                # Добавляем информацию о нейросетях
+                message_text += "\n🤖 Использование нейросетей:\n"
+                if ai_usage and ai_usage.get('models'):
+                    for model_name, usage_count in ai_usage['models'].items():
+                        message_text += f"  • {model_name}: {usage_count} раз\n"
+                else:
+                    message_text += "  • Нет данных об использовании нейросетей\n"
+                
                 keyboard = [
                     [InlineKeyboardButton("Подтвердить", callback_data=f"approve_interview_{request['id']}")],
                     [InlineKeyboardButton("Отклонить", callback_data=f"reject_interview_{request['id']}")],
@@ -233,10 +320,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await query.message.reply_text(
-                    f"ID: {request['id']}\n"
-                    f"Кандидат: {request['candidate_name']}\n"
-                    f"Предпочтительный день: {request['preferred_day']}\n"
-                    f"Предпочтительное время: {request['preferred_time']}",
+                    message_text,
                     reply_markup=reply_markup
                 )
             

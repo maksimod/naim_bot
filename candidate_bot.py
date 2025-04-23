@@ -74,13 +74,53 @@ async def handle_interview_request(user_id, preferred_day, preferred_time):
             display_name = user_info.get('display_name', f"Пользователь {user_id}")
             username_display = f" (@{user_info['username']})" if user_info.get('username') else ""
             
-            # Format notification message
+            # Получаем статистику тестов пользователя
+            user_test_results = db.get_user_test_results(user_id)
+            
+            # Получаем информацию о нейросетях, которыми пользовался кандидат
+            ai_usage = db.get_user_ai_usage(user_id) if hasattr(db, 'get_user_ai_usage') else None
+            
+            # Формируем информацию о тестах
+            tests_info = ""
+            if user_test_results:
+                tests_info += "\n\n📊 *Статистика тестов:*\n"
+                for test_name, result in user_test_results.items():
+                    test_display_name = test_name.replace('_', ' ').title()
+                    
+                    # Делаем имена тестов более читаемыми
+                    if test_name == 'primary_test':
+                        test_display_name = "Тест по первичному файлу"
+                    elif test_name == 'where_to_start_test':
+                        test_display_name = "Тест 'С чего начать'"
+                    elif test_name == 'logic_test_result':
+                        test_display_name = "Тест на логику"
+                    elif test_name == 'take_test_result':
+                        test_display_name = "Испытание"
+                    elif test_name == 'interview_prep_test':
+                        test_display_name = "Подготовка к собеседованию"
+                    
+                    status = "✅ Успешно" if result else "❌ Не пройден"
+                    tests_info += f"  • {test_display_name}: {status}\n"
+            else:
+                tests_info += "\n\n📊 *Статистика тестов:* нет данных"
+            
+            # Формируем информацию о нейросетях
+            ai_info = ""
+            if ai_usage and ai_usage.get('models'):
+                ai_info += "\n\n🤖 *Использование нейросетей:*\n"
+                for model_name, usage_count in ai_usage['models'].items():
+                    ai_info += f"  • {model_name}: {usage_count} раз\n"
+            else:
+                ai_info += "\n\n🤖 *Использование нейросетей:* нет данных"
+            
+            # Format notification message with test and AI info
             notification = (
                 f"📣 *Новый запрос на собеседование!*\n\n"
                 f"👤 Кандидат: {display_name}{username_display}\n"
                 f"📅 Предпочтительный день: {user_info['preferred_day']}\n"
-                f"⏰ Предпочтительное время: {user_info['preferred_time']}\n\n"
-                f"Используйте меню 'Запросы на собеседование' для управления."
+                f"⏰ Предпочтительное время: {user_info['preferred_time']}"
+                f"{tests_info}"
+                f"{ai_info}\n\n"
             )
             
             # Get all recruiters and send notification to each
