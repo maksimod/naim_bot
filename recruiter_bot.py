@@ -231,7 +231,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 requests_text += "\n🤖 Использование нейросетей:\n"
                 if ai_usage and ai_usage.get('models'):
                     for model_name, usage_count in ai_usage['models'].items():
-                        requests_text += f"  • {model_name}: {usage_count} раз\n"
+                        requests_text += f"  • {model_name}\n"
                 else:
                     requests_text += "  • Нет данных об использовании нейросетей\n"
                 
@@ -309,7 +309,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message_text += "\n🤖 Использование нейросетей:\n"
                 if ai_usage and ai_usage.get('models'):
                     for model_name, usage_count in ai_usage['models'].items():
-                        message_text += f"  • {model_name}: {usage_count} раз\n"
+                        message_text += f"  • {model_name}\n"
                 else:
                     message_text += "  • Нет данных об использовании нейросетей\n"
                 

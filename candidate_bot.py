@@ -109,7 +109,7 @@ async def handle_interview_request(user_id, preferred_day, preferred_time):
             if ai_usage and ai_usage.get('models'):
                 ai_info += "\n\n🤖 *Использование нейросетей:*\n"
                 for model_name, usage_count in ai_usage['models'].items():
-                    ai_info += f"  • {model_name}: {usage_count} раз\n"
+                    ai_info += f"  • {model_name}\n"
             else:
                 ai_info += "\n\n🤖 *Использование нейросетей:* нет данных"
             
