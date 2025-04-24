@@ -939,9 +939,10 @@ async def process_stopword_answer(update, context, text):
         
         preserves_meaning = result.get("preserves_meaning", False)
         excludes_stopword = result.get("excludes_stopword", False)
+        used_synonym = result.get("used_synonym", False)
         
         # Если ответ сохраняет смысл и не содержит стоп-слово
-        if preserves_meaning and excludes_stopword:
+        if preserves_meaning and excludes_stopword and not used_synonym:
             # Увеличиваем счетчик правильных ответов
             test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
             context.user_data["stopwords_test"] = test_data
@@ -955,17 +956,17 @@ async def process_stopword_answer(update, context, text):
         else:
             # Отправляем сообщение о неудаче с объяснением
             error_message = ""
-            if not preserves_meaning and not excludes_stopword:
-                error_message = f"❌ Ваш ответ не сохраняет смысл оригинального предложения и все еще содержит стоп-слово '{word}'."
+            
+            # Специальное сообщение для случая с синонимами
+            if used_synonym:
+                error_message = f"❌ Вы просто заменили стоп-слово '{word}' его синонимом. Это не решает проблему!\n\n" \
+                               f"Необходимо полностью перестроить предложение, а не заменять слово синонимом."
+            elif not preserves_meaning and not excludes_stopword:
+                error_message = f"❌ Ваш ответ не сохраняет смысл оригинального предложения и все еще содержит стоп-слово или его синоним."
             elif not preserves_meaning:
                 error_message = "❌ Ваш ответ не сохраняет смысл оригинального предложения."
             elif not excludes_stopword:
-                error_message = f"❌ Ваш ответ все еще содержит стоп-слово '{word}'."
-            
-            # Если есть рекомендуемая замена, добавляем ее в сообщение
-            replacement = stopword_data.get("replacement", "")
-            if replacement:
-                error_message += f"\n\nРекомендуемая замена для '{word}': {replacement}"
+                error_message = f"❌ Ваш ответ все еще содержит стоп-слово '{word}' или его синоним."
                 
             # Добавляем описание, если оно есть
             description = stopword_data.get("description", "")

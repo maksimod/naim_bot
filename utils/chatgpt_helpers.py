@@ -355,24 +355,48 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     if replacement:
         context += f"Рекомендуемая замена: {replacement}\n"
         
+    # Создаем примеры неправильных замен с синонимами
+    examples = ""
+    if isinstance(stopword_word, str) and len(stopword_word) > 0:
+        examples = f"""
+Примеры НЕПРАВИЛЬНЫХ замен (с использованием синонимов):
+
+Стоп-слово: "спутать"
+Оригинал: "Не пытайся спутать карты, я знаю, что ты планируешь."
+❌ Неправильно: "Не пытайся спрятать карты, я знаю, что ты планируешь." (заменили на синоним)
+✅ Правильно: "Я знаю твои планы, не пытайся меня обмануть."
+
+Стоп-слово: "наверное"
+Оригинал: "Он наверное придет завтра."
+❌ Неправильно: "Он вероятно придет завтра." (заменили на синоним)
+✅ Правильно: "Он точно придет завтра." или "Он обещал прийти завтра."
+
+Стоп-слово: "{stopword_word}"
+Необходимо не просто заменить на синоним, а перестроить предложение, чтобы избежать проблемной концепции.
+"""
+        
     messages = [
         {
             "role": "system",
-            "content": "Вы - система оценки качества перефразирования русских предложений. Ваша задача - оценить, сохраняет ли перефразированное предложение смысл оригинала и не содержит ли стоп-слово. Обратите особое внимание на недопустимость замены стоп-слов их синонимами, так как суть проблемы со стоп-словом не в самом слове, а в концепции, которая за ним стоит. Работайте только с русским языком. Отвечайте в формате JSON."
+            "content": "Вы - система строгой проверки перефразирования предложений со стоп-словами. Ваша основная задача - выявлять замены стоп-слов их синонимами, которые НЕ решают проблему стоп-слова. Стоп-слова запрещены не из-за конкретного слова, а из-за концепции или проблемного смысла, который они несут. Простая замена на синоним НЕ является правильным решением! Будьте очень строги в оценке."
         },
         {
             "role": "user",
-            "content": f"Оцените, правильно ли перефразировано предложение на русском языке:\n\n"
+            "content": f"Оцените, правильно ли перефразировано предложение:\n\n"
                        f"Оригинальное предложение: \"{original_sentence}\"\n"
                        f"Перефразированное предложение: \"{rephrased_sentence}\"\n"
                        f"Стоп-слово: \"{stopword_word}\"\n\n"
-                       f"{context}\n"
-                       f"ВАЖНО: замена стоп-слова на синоним не считается правильным ответом, т.к. проблема не в конкретном слове, а в концепции.\n\n"
+                       f"{context}\n\n"
+                       f"⚠️ КРИТИЧЕСКИ ВАЖНО! ⚠️\n"
+                       f"Замена стоп-слова его синонимом или близким по значению выражением НЕ ЯВЛЯЕТСЯ правильным ответом!\n"
+                       f"Проблема не в конкретном слове, а в концепции. Предложение должно быть полностью перестроено.\n\n"
+                       f"{examples}\n"
                        f"Верните результат в JSON формате:\n"
                        f"```json\n"
                        f"{{\n"
                        f"  \"preserves_meaning\": true/false - сохраняет ли перефразированное предложение смысл оригинала,\n"
-                       f"  \"excludes_stopword\": true/false - отсутствует ли стоп-слово и его синонимы в перефразированном предложении\n"
+                       f"  \"excludes_stopword\": true/false - отсутствует ли стоп-слово И его синонимы в перефразированном предложении,\n"
+                       f"  \"used_synonym\": true/false - использовал ли автор синоним вместо стоп-слова\n"
                        f"}}\n"
                        f"```"
         }
@@ -382,8 +406,8 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
         # Вызываем AI API с указанием русского языка
         response = await call_openai_api(messages, user_id=user_id, language="ru")
         if not response:
-            # Если нет ответа, считаем, что всё хорошо перефразировано
-            return {"preserves_meaning": True, "excludes_stopword": True}
+            # Если нет ответа, делаем простую проверку на наличие стоп-слова
+            return {"preserves_meaning": True, "excludes_stopword": stopword_word.lower() not in rephrased_sentence.lower(), "used_synonym": False}
         
         # Ищем JSON в ответе
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
@@ -391,24 +415,37 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
             json_str = json_match.group(0)
             try:
                 result = json.loads(json_str)
-                # Убеждаемся, что есть нужные поля
+                # Проверяем, есть ли все необходимые поля
                 if "preserves_meaning" in result and "excludes_stopword" in result:
+                    # Если обнаружено использование синонима, сразу отклоняем ответ
+                    if "used_synonym" in result and result["used_synonym"]:
+                        result["excludes_stopword"] = False
                     return result
             except json.JSONDecodeError:
                 logger.warning(f"Failed to parse JSON from AI response: {json_str}")
         
         # Анализируем текстовый ответ, если JSON не найден
         preserves_meaning = "не сохран" not in response.lower() and "не передает" not in response.lower()
-        excludes_stopword = "содержит стоп-слово" not in response.lower() and "включает стоп-слово" not in response.lower()
+        excludes_stopword = "содержит стоп-слово" not in response.lower() and "включает стоп-слово" not in response.lower() and "синоним" not in response.lower()
+        used_synonym = "синоним" in response.lower() or "заменил на похожее" in response.lower()
         
+        # Если использован синоним, считаем, что стоп-слово не исключено
+        if used_synonym:
+            excludes_stopword = False
+            
         return {
             "preserves_meaning": preserves_meaning,
-            "excludes_stopword": excludes_stopword
+            "excludes_stopword": excludes_stopword,
+            "used_synonym": used_synonym
         }
     except Exception as e:
         logger.error(f"Error verifying rephrasing: {e}")
-        # При ошибке считаем, что всё хорошо
-        return {"preserves_meaning": True, "excludes_stopword": True}
+        # При ошибке выполняем базовую проверку
+        return {
+            "preserves_meaning": True, 
+            "excludes_stopword": stopword_word.lower() not in rephrased_sentence.lower(),
+            "used_synonym": False
+        }
 
 async def verify_poem_task(solution_text, user_id=None):
     """Verify completion of the poem task using ChatGPT"""
