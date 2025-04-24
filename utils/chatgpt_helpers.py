@@ -190,54 +190,115 @@ def decode_unicode_string(text):
             logger.warning(f"Failed to decode Unicode: {e}")
             return text
 
-async def select_ai_stopword(user_id=None):
+async def select_ai_stopword(user_id=None, used_stopwords=None):
     """
     Позволяет ИИ выбрать стоп-слово из полного списка и построить с ним предложение.
+    
+    Args:
+        user_id: ID пользователя для логирования API вызовов
+        used_stopwords: Список уже использованных стоп-слов, чтобы избежать повторений
     
     Returns:
         dict: Словарь с выбранным стоп-словом и построенным предложением
     """
+    # Добавляем логирование
+    logger.info(f"Начало select_ai_stopword. Used stopwords: {used_stopwords}")
+    
     # Получаем полный список всех стоп-слов для выбора
     all_stopwords_data = get_stopwords_data()
+    logger.info(f"Получено {len(all_stopwords_data)} стоп-слов из базы")
     
     if not all_stopwords_data:
         logger.error("Не удалось получить список стоп-слов")
         return {
             "word": "пожалуйста",
-            "description": "",
-            "replacement": "",
-            "sentence": "Пожалуйста, рассмотрите это предложение в качестве примера."
+            "description": "Вежливое слово, используемое для смягчения просьбы",
+            "replacement": "Уберите это слово или перестройте предложение",
+            "sentence": "Пожалуйста, подготовьте отчет к завтрашнему дню."
         }
     
-    # Формируем полный контекст таблицы стоп-слов для ИИ
-    stopwords_table = []
+    # Инициализируем список уже использованных стоп-слов, если он не передан
+    if used_stopwords is None:
+        used_stopwords = []
+    
+    logger.info(f"Фильтрация стоп-слов. Уже использовано: {len(used_stopwords)}")
+    
+    # Определим список приоритетных стоп-слов, которые хорошо видны в предложениях
+    priority_stopwords = [
+        "пожалуйста", "наверное", "возможно", "ну", "проблема", "давайте подумаем", 
+        "ладно", "помогать", "хороший", "не хочу", "не могу", "не знаю"
+    ]
+    
+    # Формируем отфильтрованный список доступных стоп-слов
+    available_stopwords = []
+    
     for sw in all_stopwords_data:
-        word = sw.get("word", "")
-        description = sw.get("description", "")
-        replacement = sw.get("replacement", "")
+        word = sw.get("word", "").lower().strip()
+        # Проверяем, что стоп-слово еще не использовалось
+        if word and word not in [w.lower() for w in used_stopwords]:
+            available_stopwords.append(sw)
+    
+    # Если осталось меньше 5 стоп-слов, сбрасываем список использованных
+    if len(available_stopwords) < 5:
+        logger.warning(f"Мало доступных стоп-слов ({len(available_stopwords)}), сбрасываем список использованных")
+        available_stopwords = all_stopwords_data
+    
+    logger.info(f"Доступно стоп-слов после фильтрации: {len(available_stopwords)}")
+    
+    # Сортируем стоп-слова, чтобы приоритетные были в начале списка
+    def get_priority(stopword):
+        word = stopword.get("word", "").lower().strip()
+        # Если слово в приоритетном списке, возвращаем его индекс
+        for i, priority_word in enumerate(priority_stopwords):
+            if priority_word in word or word in priority_word:
+                return i
+        # Если не в приоритетном списке, возвращаем высокое значение
+        return 1000
+    
+    # Сортируем по приоритету
+    available_stopwords.sort(key=get_priority)
+    
+    # Выбираем первые 15 стоп-слов для отправки в API
+    selected_stopwords = available_stopwords[:15]
+    
+    # Формируем контекст для запроса
+    stopwords_context = []
+    for sw in selected_stopwords:
+        word = sw.get("word", "").strip()
+        description = sw.get("description", "").strip()
+        replacement = sw.get("replacement", "").strip()
         
         if word:
-            stopwords_table.append(f"Стоп-слово: {word}\nОписание: {description}\nРекомендуемая замена: {replacement}")
+            stopwords_context.append(f"Стоп-слово: {word}\nОписание: {description}\nРекомендуемая замена: {replacement}")
     
-    # Составляем запрос для ИИ с полной таблицей стоп-слов
+    logger.info(f"Отправляем в API {len(stopwords_context)} стоп-слов")
+    
+    # Составляем запрос для ИИ с доступными стоп-словами
     messages = [
         {
             "role": "system",
-            "content": "Вы - эксперт по деловой коммуникации. Ваша задача - выбрать одно стоп-слово из предложенного списка и составить с ним деловое предложение."
+            "content": "Вы - эксперт по деловой коммуникации. Ваша задача - выбрать одно стоп-слово из предложенного списка и составить с ним реалистичное деловое предложение. КРАЙНЕ ВАЖНО, чтобы стоп-слово было явно и чётко видно в предложении."
         },
         {
             "role": "user",
-            "content": f"""Вот полная таблица стоп-слов:
+            "content": f"""Выберите ОДНО стоп-слово из списка ниже и создайте с ним реалистичное деловое предложение:
 
-{chr(10).join(stopwords_table)}
+{chr(10).join(stopwords_context)}
 
-Выберите случайным образом ОДНО стоп-слово из таблицы, а затем создайте с ним короткое деловое предложение (5-15 слов).
+ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ:
+1. Выберите ТОЛЬКО ОДНО стоп-слово из списка
+2. Включите это стоп-слово в предложение ОЧЕНЬ ЯВНО, сделав его хорошо заметным
+3. Создайте РЕАЛИСТИЧНОЕ деловое предложение длиной 7-15 слов
+4. НЕ добавляйте к выбранному стоп-слову другие стоп-слова из списка
+5. Не выбирайте стоп-слова, которые уже использовались: {', '.join(used_stopwords) if used_stopwords else 'таких пока нет'}
 
-В ответе укажите:
-1. Выбранное стоп-слово
-2. Описание стоп-слова (из таблицы)
-3. Рекомендуемую замену (из таблицы)
-4. Составленное предложение со стоп-словом
+ПРИМЕР ХОРОШЕГО РЕЗУЛЬТАТА:
+Стоп-слово: пожалуйста
+Предложение: "Отправьте мне отчет до завтра, пожалуйста."
+
+ПРИМЕР ПЛОХОГО РЕЗУЛЬТАТА:
+Стоп-слово: пожалуйста
+Предложение: "Мы обсудили некоторые темы на совещании" (стоп-слово отсутствует!)
 
 Ответьте в формате JSON:
 {{
@@ -249,16 +310,22 @@ async def select_ai_stopword(user_id=None):
         }
     ]
     
+    # Добавляем логирование запроса
+    logger.info(f"Отправляем запрос в ChatGPT для выбора стоп-слова")
+    
     # Вызываем API с указанием языка
     response = await call_openai_api(messages, user_id=user_id, language="ru")
     if not response:
+        logger.error("Не получен ответ от API при выборе стоп-слова")
         # В случае ошибки возвращаем стандартное стоп-слово
         return {
             "word": "пожалуйста",
-            "description": "",
-            "replacement": "",
-            "sentence": "Пожалуйста, рассмотрите это предложение в качестве примера."
+            "description": "Вежливое слово, используемое для смягчения просьбы",
+            "replacement": "Уберите это слово или перестройте предложение",
+            "sentence": "Пожалуйста, подготовьте отчет к завтрашнему дню."
         }
+    
+    logger.info(f"Получен ответ от API: {response[:100]}...")
     
     # Извлекаем JSON из ответа
     try:
@@ -270,17 +337,51 @@ async def select_ai_stopword(user_id=None):
             
             # Проверяем, что все нужные поля присутствуют
             if "word" in result and "sentence" in result:
-                return result
+                # Проверяем, что стоп-слово действительно присутствует в предложении
+                if result["word"].lower() in result["sentence"].lower():
+                    logger.info(f"Успешно выбрано стоп-слово: {result['word']}")
+                    # Убеждаемся, что описание и замена заполнены
+                    if not result.get("description"):
+                        result["description"] = "Это стоп-слово затрудняет деловую коммуникацию"
+                    if not result.get("replacement"):
+                        result["replacement"] = "Уберите это слово или перефразируйте предложение"
+                    return result
+                else:
+                    logger.error(f"Стоп-слово '{result['word']}' отсутствует в предложении '{result['sentence']}'")
     except Exception as e:
         logger.error(f"Ошибка при извлечении выбранного стоп-слова: {e}")
     
-    # В случае ошибки возвращаем стандартное стоп-слово
-    return {
-        "word": "пожалуйста",
-        "description": "",
-        "replacement": "",
-        "sentence": "Пожалуйста, рассмотрите это предложение в качестве примера."
-    }
+    # Если не удалось создать предложение через API, выбираем приоритетное стоп-слово
+    fallback_options = [
+        {
+            "word": "пожалуйста",
+            "description": "Вежливое слово, используемое для смягчения просьбы. ПРИМЕНЯТЬ ТОЛЬКО: 1. ПОСЛЕ ТОГО, КАК ТЫ ПОВТОРЯЕШЬ ПРОСЬБУ ЧЕРЕЗ НЕКОТОРОЕ ВРЕМЯ! 2. В ОТВЕТ НА СПАСИБО!",
+            "replacement": "Уберите это слово или перестройте предложение",
+            "sentence": "Подготовьте отчет к завтрашнему дню, пожалуйста."
+        },
+        {
+            "word": "наверное",
+            "description": "Выражает неуверенность и сомнение, что неприемлемо в деловой коммуникации",
+            "replacement": "Уберите это слово или используйте конкретные сроки/факты",
+            "sentence": "Я наверное закончу проект к пятнице."
+        },
+        {
+            "word": "проблема",
+            "description": "Негативно окрашенное слово, создающее психологический барьер",
+            "replacement": "задача, вопрос, ситуация",
+            "sentence": "У нас возникла проблема с поставкой материалов."
+        }
+    ]
+    
+    # Выбираем первое стоп-слово, которое еще не использовалось
+    for option in fallback_options:
+        if option["word"].lower() not in [w.lower() for w in used_stopwords]:
+            logger.info(f"Использую резервное стоп-слово: {option['word']}")
+            return option
+    
+    # Если все резервные варианты использованы, возвращаем первый
+    logger.info("Все резервные стоп-слова использованы, возвращаю первое")
+    return fallback_options[0]
 
 async def generate_ai_stopword_sentence(stopword_data, user_id=None):
     api_url = os.getenv("CHATGPT_API_KEY")
@@ -386,6 +487,22 @@ def get_hardcoded_example(stopword_data):
     return f"Пример предложения, содержащего слово '{stopword}'."
 
 async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, stopword, user_id=None):
+    """
+    Проверяет, правильно ли перефразировано предложение без стоп-слова.
+    
+    Args:
+        original_sentence: Исходное предложение со стоп-словом
+        rephrased_sentence: Перефразированное предложение
+        stopword: Стоп-слово или словарь с данными о стоп-слове
+        user_id: ID пользователя для логирования API вызовов
+    
+    Returns:
+        dict: Результат проверки {preserves_meaning, excludes_stopword, used_synonym, detected_stopword}
+    """
+    logger.info(f"Начало проверки перефразирования. Стоп-слово: {stopword if isinstance(stopword, str) else stopword.get('word', '')}")
+    logger.info(f"Оригинал: {original_sentence}")
+    logger.info(f"Перефраз: {rephrased_sentence}")
+    
     # Если stopword - это словарь с полной информацией, извлекаем из него данные
     stopword_word = stopword
     description = ""
@@ -403,14 +520,18 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     
     # Составляем контекст для ИИ с полной информацией
     context = ""
+    if stopword_word:
+        context += f"Целевое стоп-слово: {stopword_word}\n"
     if description:
         context += f"Описание стоп-слова: {description}\n"
     if replacement:
         context += f"Рекомендуемая замена: {replacement}\n"
     
-    # Добавляем информацию о всех стоп-словах (передаем полный список без ограничений)
-    if all_stopwords:
-        context += f"\nСписок основных стоп-слов для проверки: {', '.join(all_stopwords)}\n"
+    # Добавляем информацию о всех стоп-словах (передаем список из 20 наиболее распространенных)
+    common_stopwords = ["пожалуйста", "наверное", "возможно", "проблема", "ну", "ладно", 
+                      "надо", "ясно", "как бы", "хорошо", "плохо", "нормально"]
+    
+    context += f"\nСписок распространенных стоп-слов для проверки: {', '.join(common_stopwords)}\n"
         
     # Создаем примеры правильных и неправильных решений для обучения AI
     examples = f"""
@@ -458,6 +579,36 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
 Перефраз: "Я в раздумьях насчет решения в этой ситуации"
 ❌ НЕПРАВИЛЬНО - "В раздумьях" в данном контексте - синоним "не знаю"
 """
+
+    # Делаем базовую проверку
+    if not rephrased_sentence or rephrased_sentence.strip() == "":
+        logger.warning("Пустой ответ на перефразирование")
+        return {
+            "preserves_meaning": False,
+            "excludes_stopword": False,
+            "used_synonym": False,
+            "detected_stopword": stopword_word
+        }
+    
+    # Быстрая проверка на наличие стоп-слова в ответе
+    if stopword_word.lower() in rephrased_sentence.lower():
+        logger.info(f"Быстрая проверка обнаружила стоп-слово '{stopword_word}' в ответе")
+        return {
+            "preserves_meaning": True,
+            "excludes_stopword": False,
+            "used_synonym": False,
+            "detected_stopword": stopword_word
+        }
+    
+    # Проверяем, не совпадает ли оригинал с ответом (если стоп-слова в оригинале нет)
+    if original_sentence.lower() == rephrased_sentence.lower() and stopword_word.lower() not in original_sentence.lower():
+        logger.info("Ответ совпадает с оригиналом, и стоп-слова нет в оригинале")
+        return {
+            "preserves_meaning": True,
+            "excludes_stopword": True,
+            "used_synonym": False,
+            "detected_stopword": ""
+        }
         
     messages = [
         {
@@ -466,55 +617,65 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
         },
         {
             "role": "user",
-            "content": f"Проанализируйте, правильно ли перефразировано предложение:\n\n"
-                       f"ОРИГИНАЛ: \"{original_sentence}\"\n"
-                       f"СТОП-СЛОВО: \"{stopword_word}\"\n"
-                       f"ПЕРЕФРАЗ: \"{rephrased_sentence}\"\n\n"
-                       f"ТАБЛИЦА СТОП-СЛОВ С ОБЬЯСНЕНИЯМИ:"
-                       f"{context}\n\n"
-                       f"ИНСТРУКЦИЯ ПО ОЦЕНКЕ:\n\n"
-                       f"1. СЧИТАЙТЕ ПРАВИЛЬНЫМ ОТВЕТОМ ТОЛЬКО:\n"
-                       f"   - Полное удаление частей предложения, содержащих стоп-слово\n"
-                       f"   - Существенное сокращение предложения, если удалено стоп-слово\n"
-                       f"   - Полное изменение конструкции, чтобы избежать стоп-слова и его синонимов\n"
-                       f"   - Замену субъективных оценок на объективные факты (конкретные цифры и т.д.)\n\n"
-                       f"2. СЧИТАЙТЕ НЕПРАВИЛЬНЫМ ОТВЕТОМ:\n"
-                       f"   - Использование того же стоп-слова в любой форме\n"
-                       f"   - Использование синонимов (например: 'не уверен'→'совневаюсь', 'возможно'→'может быть')\n"
-                       f"   - Добавление субъективных оценочных прилагательных ('красивый', 'прекрасный', 'хороший')\n"
-                       f"   - Сохранение той же самой модальности или эмоциональной окраски\n\n"
-                       f"3. ВНИМАТЕЛЬНО АНАЛИЗИРУЙТЕ СИНОНИМИЧЕСКИЕ ПЕРЕФРАЗИРОВКИ:\n"
-                       f"   - 'совневаюсь' = синоним 'не уверен'\n"
-                       f"   - 'может быть/вероятно' = синоним 'возможно'\n"
-                       f"   - 'в раздумьях' = синоним 'не знаю'\n\n"
-                       f"{examples}\n\n"
-                       f"Верните ваше решение ТОЛЬКО в JSON формате:\n\n"
-                       f"```json\n"
-                       f"{{\n"
-                       f"  \"preserves_meaning\": true/false, // сохраняет ли перефразированное предложение основной смысл\n"
-                       f"  \"excludes_stopword\": true/false, // отсутствуют ли стоп-слова и их синонимы\n"
-                       f"  \"used_synonym\": true/false // использовал ли автор синоним стоп-слова\n"
-                       f"}}\n"
-                       f"```"
+            "content": f"""Проанализируйте, правильно ли перефразировано предложение:
+
+ОРИГИНАЛ: \"{original_sentence}\"
+СТОП-СЛОВО: \"{stopword_word}\"
+ПЕРЕФРАЗ: \"{rephrased_sentence}\"
+
+ТАБЛИЦА СТОП-СЛОВ С ОБЬЯСНЕНИЯМИ:
+{context}
+
+ИНСТРУКЦИЯ ПО ОЦЕНКЕ:
+
+1. СЧИТАЙТЕ ПРАВИЛЬНЫМ ОТВЕТОМ ТОЛЬКО:
+   - Полное удаление частей предложения, содержащих стоп-слово
+   - Существенное сокращение предложения, если удалено стоп-слово
+   - Полное изменение конструкции, чтобы избежать стоп-слова и его синонимов
+   - Замену субъективных оценок на объективные факты (конкретные цифры и т.д.)
+
+2. СЧИТАЙТЕ НЕПРАВИЛЬНЫМ ОТВЕТОМ:
+   - Использование того же стоп-слова в любой форме
+   - Использование синонимов (например: 'не уверен'→'совневаюсь', 'возможно'→'может быть')
+   - Добавление субъективных оценочных прилагательных ('красивый', 'прекрасный', 'хороший')
+   - Сохранение той же самой модальности или эмоциональной окраски
+
+3. ВНИМАТЕЛЬНО АНАЛИЗИРУЙТЕ СИНОНИМИЧЕСКИЕ ПЕРЕФРАЗИРОВКИ:
+   - 'совневаюсь' = синоним 'не уверен'
+   - 'может быть/вероятно' = синоним 'возможно'
+   - 'в раздумьях' = синоним 'не знаю'
+
+{examples}
+
+Верните ваше решение в JSON формате:
+
+```json
+{{
+  "preserves_meaning": true/false, // сохраняет ли перефразированное предложение основной смысл
+  "excludes_stopword": true/false, // отсутствуют ли стоп-слова и их синонимы
+  "used_synonym": true/false, // использовал ли автор синоним стоп-слова
+  "detected_stopword": "конкретное найденное стоп-слово или его синоним" // пустая строка, если стоп-слова нет
+}}
+```"""
         }
     ]
     
-
-    print("-"*100)
-    print(context)
-    print("+"*100)
-
-    logger.info("-"*100)
-    logger.info(context)
-    logger.info("+"*100)
-
+    logger.info("Отправляю запрос в ChatGPT для проверки перефразирования")
 
     try:
         # Вызываем AI API с указанием русского языка
         response = await call_openai_api(messages, user_id=user_id, language="ru")
         if not response:
+            logger.error("Не получен ответ от API при проверке перефразирования")
             # Если нет ответа, делаем простую проверку на наличие стоп-слова
-            return {"preserves_meaning": True, "excludes_stopword": stopword_word.lower() not in rephrased_sentence.lower(), "used_synonym": False}
+            return {
+                "preserves_meaning": True, 
+                "excludes_stopword": stopword_word.lower() not in rephrased_sentence.lower(), 
+                "used_synonym": False,
+                "detected_stopword": stopword_word.lower() if stopword_word.lower() in rephrased_sentence.lower() else ""
+            }
+        
+        logger.info(f"Получен ответ от API: {response[:100]}...")
         
         # Ищем JSON в ответе
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
@@ -527,31 +688,52 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
                     # Если обнаружено использование синонима, сразу отклоняем ответ
                     if "used_synonym" in result and result["used_synonym"]:
                         result["excludes_stopword"] = False
+                    
+                    # Если поле detected_stopword не передано, добавляем пустую строку
+                    if "detected_stopword" not in result:
+                        result["detected_stopword"] = ""
+                    
+                    logger.info(f"Результат проверки: сохраняет смысл={result['preserves_meaning']}, исключает стоп-слово={result['excludes_stopword']}")
+                    if not result['excludes_stopword'] and result.get('detected_stopword'):
+                        logger.info(f"Обнаружено стоп-слово: {result['detected_stopword']}")
+                        
                     return result
             except json.JSONDecodeError:
-                logger.warning(f"Failed to parse JSON from AI response: {json_str}")
+                logger.warning(f"Не удалось распарсить JSON из ответа API: {json_str}")
         
         # Анализируем текстовый ответ, если JSON не найден
         preserves_meaning = "не сохран" not in response.lower() and "не передает" not in response.lower()
         excludes_stopword = "содержит стоп-слово" not in response.lower() and "включает стоп-слово" not in response.lower()
         used_synonym = "синоним" in response.lower() and "не считайте синонимами" not in response.lower()
+        detected_stopword = ""
+        
+        # Ищем указание на конкретное стоп-слово в ответе
+        stopword_match = re.search(r'стоп-слово.*?[«"\']([^«"\']+)[»"\']', response, re.IGNORECASE)
+        if stopword_match:
+            detected_stopword = stopword_match.group(1)
         
         # Если использован синоним, считаем, что стоп-слово не исключено
         if used_synonym:
             excludes_stopword = False
             
+        logger.info(f"Результат текстового анализа: сохраняет смысл={preserves_meaning}, исключает стоп-слово={excludes_stopword}")
+        if not excludes_stopword and detected_stopword:
+            logger.info(f"Обнаружено стоп-слово: {detected_stopword}")
+            
         return {
             "preserves_meaning": preserves_meaning,
             "excludes_stopword": excludes_stopword,
-            "used_synonym": used_synonym
+            "used_synonym": used_synonym,
+            "detected_stopword": detected_stopword
         }
     except Exception as e:
-        logger.error(f"Error verifying rephrasing: {e}")
+        logger.error(f"Ошибка при проверке перефразирования: {e}")
         # При ошибке выполняем базовую проверку
         return {
             "preserves_meaning": True, 
             "excludes_stopword": stopword_word.lower() not in rephrased_sentence.lower(),
-            "used_synonym": False
+            "used_synonym": False,
+            "detected_stopword": stopword_word.lower() if stopword_word.lower() in rephrased_sentence.lower() else ""
         }
 
 async def verify_poem_task(solution_text, user_id=None):

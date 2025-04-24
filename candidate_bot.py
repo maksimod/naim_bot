@@ -13,7 +13,7 @@ from config import CandidateStates, CANDIDATE_BOT_TOKEN, RECRUITER_BOT_TOKEN
 from handlers.candidate_handlers import (
     send_main_menu, handle_message, handle_test_answer,
     handle_where_to_start, start_stopwords_test, handle_stopword_answer,
-    next_stopword_question, begin_stopwords_test
+    next_stopword_question
 )
 from handlers.button_handlers import button_click
 
@@ -91,7 +91,7 @@ async def handle_interview_request(user_id, preferred_day, preferred_time):
                     if test_name == 'primary_test':
                         test_display_name = "Тест по первичному файлу"
                     elif test_name == 'where_to_start_test':
-                        test_display_name = "Тест 'С чего начать'"
+                        test_display_name = "Тест 'Стоп-слова'"
                     elif test_name == 'logic_test_result':
                         test_display_name = "Тест на логику"
                     elif test_name == 'take_test_result':
@@ -234,10 +234,10 @@ def main():
         pattern="^back_to_menu$"
     ))
     
-    # Обработчики для раздела "С чего начать"
+    # Обработчики для раздела "Стоп-слова"
     application.add_handler(CallbackQueryHandler(handle_where_to_start, pattern="^where_to_start$"))
     application.add_handler(CallbackQueryHandler(start_stopwords_test, pattern="^start_stopwords_test$"))
-    application.add_handler(CallbackQueryHandler(begin_stopwords_test, pattern="^begin_stopwords_test$"))
+    application.add_handler(CallbackQueryHandler(start_stopwords_test, pattern="^begin_stopwords_test$"))
     application.add_handler(CallbackQueryHandler(next_stopword_question, pattern="^next_stopword_question$"))
     
     # Обработчики для тестов

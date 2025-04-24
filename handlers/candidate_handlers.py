@@ -42,7 +42,7 @@ async def send_main_menu(update, context, message=None, edit=False):
     menu_options = [
         ("about_company", "🔵 Узнать о компании"),
         ("primary_file", "🟢 Первичный файл"),
-        ("where_to_start", "🔴 С чего начать"),
+        ("where_to_start", "🔴 Стоп-слова"),
         ("logic_test", "🔴 Тест на логику"),
         ("preparation_materials", "🔴 Материалы для подготовки"),
         ("take_test", "🔴 Пройти испытание"),
@@ -891,128 +891,153 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await send_main_menu(update, context, edit=True)
 
 async def process_stopword_answer(update, context, text):
-    """Обработать ответ пользователя на задание по перефразированию предложения без стоп-слова"""
-    user_id = update.effective_user.id
+    """Проверка ответа на вопрос с стоп-словами"""
+    # Проверяем, что ожидается ответ на стоп-слово
+    if not context.user_data.get("awaiting_stopword_answer", False):
+        return
+
+    # Устанавливаем флаг обработки ответа, чтобы избежать параллельной обработки
+    context.user_data["processing_answer"] = True
     
-    # Получаем текущий вопрос и стоп-слово из контекста
-    test_data = context.user_data.get("stopwords_test", {})
-    current_question_idx = test_data.get("current_question", 0)
-    stopword_data = context.user_data.get("current_stopword", {})
+    # Получаем информацию о текущем стоп-слове
+    current_stopword = context.user_data.get("current_stopword", {})
     
-    if not stopword_data:
-        await update.message.reply_text(
-            "Произошла ошибка при обработке вашего ответа. Пожалуйста, попробуйте снова."
-        )
+    # Если не удалось получить информацию о стоп-слове, прекращаем обработку
+    if not current_stopword:
+        context.user_data["processing_answer"] = False
+        context.user_data["awaiting_stopword_answer"] = False
+        await update.effective_message.reply_text("Произошла ошибка. Пожалуйста, вернитесь в главное меню.")
         return
     
-    # Получаем текущее стоп-слово и предложение
-    word = stopword_data.get("word", "")
-    original_sentence = stopword_data.get("sentence", "")
+    # Получаем предложение с стоп-словом и ответ пользователя
+    original_sentence = current_stopword.get("sentence", "")
+    stopword_word = current_stopword.get("word", "")
+    rephrased_sentence = text.strip()
     
-    if not word or not original_sentence:
-        await update.message.reply_text(
-            "Произошла ошибка при обработке вашего ответа. Пожалуйста, попробуйте снова."
-        )
-        return
-    
-    # Отмечаем, что больше не ждем ответа
-    context.user_data["awaiting_stopword_answer"] = False
-    
-    # Проверяем ответ с помощью ИИ, используя полные данные о стоп-слове
-    try:
-        # Используем полный объект с данными о стоп-слове для проверки
-        result = await verify_stopword_rephrasing_ai(
-            original_sentence=original_sentence,
-            rephrased_sentence=text,
-            stopword=stopword_data,  # Передаем весь объект с данными
-            user_id=user_id
-        )
-        
-        preserves_meaning = result.get("preserves_meaning", False)
-        excludes_stopword = result.get("excludes_stopword", False)
-        used_synonym = result.get("used_synonym", False)
-        
-        # Если ответ сохраняет смысл и не содержит стоп-слово
-        if preserves_meaning and excludes_stopword and not used_synonym:
+    # Проверяем, есть ли стоп-слово в исходном предложении
+    if stopword_word.lower() not in original_sentence.lower():
+        logger.warning(f"Стоп-слово '{stopword_word}' отсутствует в оригинальном предложении: '{original_sentence}'")
+        # Засчитываем ответ как правильный, если пользователь вернул то же предложение
+        if original_sentence.lower() == rephrased_sentence.lower():
             # Увеличиваем счетчик правильных ответов
+            test_data = context.user_data.get("stopwords_test", {})
             test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
             context.user_data["stopwords_test"] = test_data
             
-            # Отправляем сообщение об успехе
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 f"✅ Отлично! Вы успешно перефразировали предложение без использования стоп-слова.\n\n"
                 f"Оригинал: {original_sentence}\n"
-                f"Ваш ответ: {text}"
+                f"Ваш ответ: {rephrased_sentence}\n"
             )
         else:
-            # Отправляем сообщение о неудаче с объяснением
-            error_message = ""
+            await update.effective_message.reply_text(
+                f"❌ В исходном предложении не было стоп-слова '{stopword_word}', нужно было оставить его без изменений.\n\n"
+                f"Оригинал: {original_sentence}\n"
+                f"Ваш ответ: {rephrased_sentence}\n"
+            )
             
-            # Проверяем, не является ли ответ простым сокращением предложения, сохраняющим основной смысл
-            # Например: "Ты достиг многих целей, но не хвастайся этим." -> "Ты достиг многих целей."
-            if text in original_sentence and len(text.split()) >= 3 and not word.lower() in text.lower():
-                # Получаем все стоп-слова из таблицы
-                all_stopwords = []
-                try:
-                    from utils.helpers import get_stopwords_data
-                    all_stopwords_data = get_stopwords_data()
-                    all_stopwords = [sw.get("word", "").lower() for sw in all_stopwords_data if "word" in sw]
-                except Exception as e:
-                    logger.error(f"Ошибка при получении полного списка стоп-слов: {e}")
-                
-                # Проверяем, есть ли в ответе другие стоп-слова
-                contains_other_stopwords = False
-                for stopword in all_stopwords:
-                    if stopword.lower() in text.lower():
-                        contains_other_stopwords = True
-                        break
-                
-                if not contains_other_stopwords:
-                    # Увеличиваем счетчик правильных ответов, т.к. это правильное решение
-                    test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
-                    context.user_data["stopwords_test"] = test_data
-                    
-                    await update.message.reply_text(
-                        f"✅ Хорошо! Вы оставили ключевую часть предложения без стоп-слова.\n\n"
-                        f"Оригинал: {original_sentence}\n"
-                        f"Ваш ответ: {text}"
-                    )
-                    
-                    # Переходим к следующему вопросу
-                    test_data["current_question"] = current_question_idx + 1
-                    context.user_data["stopwords_test"] = test_data
-                    
-                    # Отправляем следующий вопрос
-                    await send_stopword_question(update, context)
-                    return
-            
-            # Специальное сообщение для случая с синонимами
-            if used_synonym:
-                error_message = f"❌ Вы заменили стоп-слово его синонимом. Это не решает проблему!\n\n" \
-                               f"Необходимо полностью перестроить предложение, а не заменять слово синонимом."
-            elif not preserves_meaning and not excludes_stopword:
-                error_message = f"❌ Ваш ответ не сохраняет смысл оригинального предложения и все еще содержит стоп-слово или его синоним."
-            elif not preserves_meaning:
-                error_message = "❌ Ваш ответ не сохраняет смысл оригинального предложения."
-            elif not excludes_stopword:
-                error_message = f"❌ Ваш ответ все еще содержит одно или несколько стоп-слов или их синонимов."
-                
-            # Добавляем описание, если оно есть
-            description = stopword_data.get("description", "")
-            if description:
-                error_message += f"\n\nОписание проблемы со словом '{word}': {description}"
-            
-            await update.message.reply_text(error_message)
-    except Exception as e:
-        logger.error(f"Ошибка при проверке перефразирования: {e}")
-        await update.message.reply_text(
-            "Произошла ошибка при проверке вашего ответа. Пожалуйста, попробуйте еще раз."
-        )
+        # Переходим к следующему вопросу
+        await next_question(update, context)
         return
     
-    # Переходим к следующему вопросу
+    # Если пользователь не ввел ответ, просим повторить
+    if not rephrased_sentence:
+        context.user_data["processing_answer"] = False
+        await update.effective_message.reply_text("Пожалуйста, введите перефразированное предложение.")
+        return
+    
+    # Отображаем индикатор загрузки
+    message = await update.effective_message.reply_text("⏳ Проверяю ваш ответ...")
+    
+    try:
+        # Проверяем, удалил ли пользователь стоп-слово с помощью ИИ
+        user_id = update.effective_user.id if update.effective_user else None
+        validation_result = await verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, current_stopword, user_id)
+        
+        # Получаем результаты проверки
+        preserves_meaning = validation_result.get("preserves_meaning", False)
+        excludes_stopword = validation_result.get("excludes_stopword", False)
+        used_synonym = validation_result.get("used_synonym", False)
+        detected_stopword = validation_result.get("detected_stopword", "")
+        
+        # Удаляем сообщение с индикатором загрузки
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=message.message_id
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при удалении сообщения: {e}")
+        
+        # Формируем сообщение с результатом проверки
+        if preserves_meaning and excludes_stopword:
+            # Правильный ответ - увеличиваем счетчик правильных ответов
+            test_data = context.user_data.get("stopwords_test", {})
+            test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
+            context.user_data["stopwords_test"] = test_data
+            
+            result_message = (
+                f"✅ Отлично! Вы успешно перефразировали предложение без использования стоп-слова.\n\n"
+                f"Оригинал: {original_sentence}\n"
+                f"Ваш ответ: {rephrased_sentence}\n"
+            )
+        else:
+            # Формируем детальное сообщение о причине неправильного ответа
+            if not preserves_meaning and not excludes_stopword:
+                result_message = (
+                    f"❌ Ваш ответ не сохраняет смысл оригинального предложения и все еще содержит стоп-слово.\n\n"
+                )
+            elif not preserves_meaning:
+                result_message = (
+                    f"❌ Ваш ответ не сохраняет смысл оригинального предложения.\n\n"
+                )
+            elif not excludes_stopword:
+                if detected_stopword:
+                    found_stopword = detected_stopword if detected_stopword != stopword_word else stopword_word
+                    result_message = (
+                        f"❌ Ваш ответ все еще содержит стоп-слово или его синоним: '{found_stopword}'.\n\n"
+                    )
+                else:
+                    result_message = (
+                        f"❌ Ваш ответ все еще содержит стоп-слово '{stopword_word}' или его синоним.\n\n"
+                    )
+            
+            # Добавляем описание стоп-слова для пояснения
+            description = current_stopword.get("description", "")
+            if description:
+                result_message += f"Описание стоп-слова '{stopword_word}': {description}\n\n"
+            
+            # Добавляем рекомендуемую замену
+            replacement = current_stopword.get("replacement", "")
+            if replacement:
+                result_message += f"Рекомендуемая замена: {replacement}\n\n"
+        
+        # Отправляем результат проверки
+        await update.effective_message.reply_text(result_message)
+        
+        # Переходим к следующему вопросу
+        await next_question(update, context)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при проверке ответа на стоп-слово: {e}")
+        await update.effective_message.reply_text(
+            "Произошла ошибка при проверке вашего ответа. Пожалуйста, попробуйте еще раз."
+        )
+        # Сбрасываем флаг ожидания ответа
+        context.user_data["awaiting_stopword_answer"] = False
+        context.user_data["processing_answer"] = False
+
+async def next_question(update, context):
+    """Вспомогательная функция для перехода к следующему вопросу"""
+    # Обновляем номер вопроса
+    test_data = context.user_data.get("stopwords_test", {})
+    current_question_idx = test_data.get("current_question", 0)
     test_data["current_question"] = current_question_idx + 1
     context.user_data["stopwords_test"] = test_data
+    
+    # Сбрасываем флаг ожидания ответа и обработки
+    context.user_data["awaiting_stopword_answer"] = False
+    context.user_data["processing_answer"] = False
     
     # Отправляем следующий вопрос
     await send_stopword_question(update, context)
@@ -1087,7 +1112,7 @@ async def handle_schedule_interview(update: Update, context: ContextTypes.DEFAUL
     return CandidateStates.SCHEDULE_INTERVIEW
 
 async def next_stopword_question(update, context):
-    """Переход к следующему вопросу в тесте стоп-слов"""
+    """Показать следующий вопрос теста стоп-слов"""
     query = update.callback_query
     await query.answer()
     
@@ -1120,12 +1145,16 @@ async def next_stopword_question(update, context):
         # Проверяем, не закончился ли тест
         test_data = context.user_data.get("stopwords_test", {})
         current_question = test_data.get("current_question", 0)
-        questions = test_data.get("stopwords", [])
+        total_questions = test_data.get("total_questions", 10)
         
-        if current_question >= len(questions):
+        if current_question >= total_questions:
             # Тест завершен, показываем результаты
             await handle_stopwords_test_completion(update, context)
             return CandidateStates.MAIN_MENU
+        
+        # Инкрементируем номер вопроса
+        test_data["current_question"] = current_question + 1
+        context.user_data["stopwords_test"] = test_data
         
         # Отправляем следующий вопрос
         await send_stopword_question(update, context)
@@ -1204,7 +1233,7 @@ async def handle_stopword_answer(update, context):
     return CandidateStates.STOPWORDS_TEST
 
 async def handle_where_to_start(update, context):
-    """Обработка раздела "С чего начать" с тестом на стоп-слова"""
+    """Обработка раздела "Стоп-слова" с тестом на стоп-слова"""
     query = update.callback_query
     
     # Показываем информацию о стоп-словах и ссылку на таблицу
@@ -1295,10 +1324,12 @@ async def send_stopword_question(update, context):
     # Если это первый вопрос и мы еще не генерировали предложения
     if "generated_sentences" not in test_data:
         test_data["generated_sentences"] = []
+        test_data["used_stopwords"] = []  # Добавляем отслеживание использованных стоп-слов
         context.user_data["stopwords_test"] = test_data
     
     # Получаем информацию о текущем стоп-слове
     generated_sentences = test_data.get("generated_sentences", [])
+    used_stopwords = test_data.get("used_stopwords", [])  # Список использованных стоп-слов
     current_stopword = None
     
     # Проверяем, есть ли уже сгенерированное предложение для текущего вопроса
@@ -1320,8 +1351,14 @@ async def send_stopword_question(update, context):
         
         try:
             # Позволяем ИИ выбрать стоп-слово и составить с ним предложение
+            # Передаем список уже использованных стоп-слов
             user_id = update.effective_user.id if update.effective_user else None
-            current_stopword = await select_ai_stopword(user_id=user_id)
+            current_stopword = await select_ai_stopword(user_id=user_id, used_stopwords=used_stopwords)
+            
+            # Добавляем выбранное стоп-слово в список использованных
+            if "word" in current_stopword and current_stopword["word"]:
+                used_stopwords.append(current_stopword["word"])
+                test_data["used_stopwords"] = used_stopwords
             
             # Сохраняем выбранное стоп-слово и сгенерированное предложение для повторного использования
             while len(generated_sentences) <= current_question_idx:
@@ -1413,8 +1450,8 @@ async def send_stopword_question(update, context):
             # Запускаем таймер, который будет обновлять сообщение каждую секунду
             job = context.job_queue.run_repeating(
                 update_stopwords_timer,
-                interval=5.0,  # Интервал обновления - 1 секунда
-                first=5.0,     # Первое обновление через 1 секунду
+                interval=15.0,  # Интервал обновления - 15 секунд
+                first=15.0,     # Первое обновление через 15 секунд
                 data=job_data,
                 name=f"stopwords_timer_{update.effective_chat.id}"
             )
@@ -1451,7 +1488,8 @@ async def handle_stopwords_test_completion(update, context):
     # Сохраняем результат теста в БД
     user_id = update.effective_user.id
     if user_id:
-        db.save_test_result(user_id, "stopwords", passed, correct_answers, answered_questions)
+        # Используем правильную функцию из модуля database
+        db.update_test_result(user_id, "stopwords", passed)
     
     # Формируем сообщение о результатах
     if timed_out:
@@ -1725,7 +1763,6 @@ async def update_stopwords_timer(context):
         logger.error(f"Ошибка при обновлении таймера стоп-слов: {e}")
 
 async def test_timeout(update, context):
-    """Handle the case when the test time expires"""
     user_id = update.effective_user.id
     test_name = context.user_data.get("current_test")
     

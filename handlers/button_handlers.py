@@ -70,7 +70,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menu_options = [
         ("about_company", "🔵 Узнать о компании"),
         ("primary_file", "🟢 Первичный файл"),
-        ("where_to_start", "🔴 С чего начать"),
+        ("where_to_start", "🔴 Стоп-слова"),
         ("preparation_materials", "🔴 Материалы для подготовки"),
         ("take_test", "🔴 Пройти испытание"),
         ("interview_prep", "🔴 Подготовка к собеседованию"),
@@ -861,7 +861,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Определяем список всех тестов
         test_names = {
             "primary_test": "Первичный файл",
-            "where_to_start_test": "С чего начать",
+            "where_to_start_test": "Стоп-слова",
             "logic_test_result": "Тест на логику",
             "take_test_result": "Пройти испытание", 
             "interview_prep_test": "Подготовка к собеседованию"

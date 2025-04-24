@@ -91,7 +91,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if test_type == 'primary_test':
                     test_name = "Тест по первичному файлу"
                 elif test_type == 'stopwords_test':
-                    test_name = "Тест С чего начать"
+                    test_name = "Тест Стоп-слова"
                 elif test_type == 'logic_test':
                     test_name = "Тест на логику"
                 elif test_type == 'practice_test':
@@ -214,7 +214,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if test_name == 'primary_test':
                             test_display_name = "Тест по первичному файлу"
                         elif test_name == 'where_to_start_test':
-                            test_display_name = "Тест С чего начать"
+                            test_display_name = "Тест Стоп-слова"
                         elif test_name == 'logic_test_result':
                             test_display_name = "Тест на логику"
                         elif test_name == 'take_test_result':
@@ -292,7 +292,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if test_name == 'primary_test':
                             test_display_name = "Тест по первичному файлу"
                         elif test_name == 'where_to_start_test':
-                            test_display_name = "Тест С чего начать"
+                            test_display_name = "Тест Стоп-слова"
                         elif test_name == 'logic_test_result':
                             test_display_name = "Тест на логику"
                         elif test_name == 'take_test_result':
