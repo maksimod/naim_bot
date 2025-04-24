@@ -190,9 +190,106 @@ def decode_unicode_string(text):
             logger.warning(f"Failed to decode Unicode: {e}")
             return text
 
+async def select_ai_stopword(user_id=None):
+    """
+    Позволяет ИИ выбрать стоп-слово из полного списка и построить с ним предложение.
+    
+    Returns:
+        dict: Словарь с выбранным стоп-словом и построенным предложением
+    """
+    # Получаем полный список всех стоп-слов для выбора
+    all_stopwords_data = get_stopwords_data()
+    
+    if not all_stopwords_data:
+        logger.error("Не удалось получить список стоп-слов")
+        return {
+            "word": "пожалуйста",
+            "description": "",
+            "replacement": "",
+            "sentence": "Пожалуйста, рассмотрите это предложение в качестве примера."
+        }
+    
+    # Формируем полный контекст таблицы стоп-слов для ИИ
+    stopwords_table = []
+    for sw in all_stopwords_data:
+        word = sw.get("word", "")
+        description = sw.get("description", "")
+        replacement = sw.get("replacement", "")
+        
+        if word:
+            stopwords_table.append(f"Стоп-слово: {word}\nОписание: {description}\nРекомендуемая замена: {replacement}")
+    
+    # Составляем запрос для ИИ с полной таблицей стоп-слов
+    messages = [
+        {
+            "role": "system",
+            "content": "Вы - эксперт по деловой коммуникации. Ваша задача - выбрать одно стоп-слово из предложенного списка и составить с ним деловое предложение."
+        },
+        {
+            "role": "user",
+            "content": f"""Вот полная таблица стоп-слов:
+
+{chr(10).join(stopwords_table)}
+
+Выберите случайным образом ОДНО стоп-слово из таблицы, а затем создайте с ним короткое деловое предложение (5-15 слов).
+
+В ответе укажите:
+1. Выбранное стоп-слово
+2. Описание стоп-слова (из таблицы)
+3. Рекомендуемую замену (из таблицы)
+4. Составленное предложение со стоп-словом
+
+Ответьте в формате JSON:
+{{
+  "word": "выбранное стоп-слово",
+  "description": "описание из таблицы",
+  "replacement": "рекомендуемая замена из таблицы",
+  "sentence": "составленное предложение со стоп-словом"
+}}"""
+        }
+    ]
+    
+    # Вызываем API с указанием языка
+    response = await call_openai_api(messages, user_id=user_id, language="ru")
+    if not response:
+        # В случае ошибки возвращаем стандартное стоп-слово
+        return {
+            "word": "пожалуйста",
+            "description": "",
+            "replacement": "",
+            "sentence": "Пожалуйста, рассмотрите это предложение в качестве примера."
+        }
+    
+    # Извлекаем JSON из ответа
+    try:
+        # Ищем JSON в ответе
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            result = json.loads(json_str)
+            
+            # Проверяем, что все нужные поля присутствуют
+            if "word" in result and "sentence" in result:
+                return result
+    except Exception as e:
+        logger.error(f"Ошибка при извлечении выбранного стоп-слова: {e}")
+    
+    # В случае ошибки возвращаем стандартное стоп-слово
+    return {
+        "word": "пожалуйста",
+        "description": "",
+        "replacement": "",
+        "sentence": "Пожалуйста, рассмотрите это предложение в качестве примера."
+    }
+
 async def generate_ai_stopword_sentence(stopword_data, user_id=None):
     api_url = os.getenv("CHATGPT_API_KEY")
     
+    # Если передан словарь с готовым предложением от select_ai_stopword
+    if "sentence" in stopword_data:
+        return stopword_data.get("sentence")
+    
+    # Иначе работаем в обычном режиме
     stopword = stopword_data["word"]
     
     # Используем полные данные из таблицы стоп-слов
@@ -216,7 +313,7 @@ async def generate_ai_stopword_sentence(stopword_data, user_id=None):
     
     # Добавляем информацию о других стоп-словах
     if other_stopwords:
-        context += f"\nВАЖНО: Предложение должно содержать указанное стоп-слово '{stopword}'. НЕ ВКЛЮЧАЙТЕ другие стоп-слова: {', '.join(other_stopwords[:10])}{'...' if len(other_stopwords) > 10 else ''}\n"
+        context += f"\nВАЖНО: Предложение должно содержать указанное стоп-слово '{stopword}'. НЕ ВКЛЮЧАЙТЕ другие стоп-слова: {', '.join(other_stopwords)}\n"
     
     messages = [
         {
@@ -303,6 +400,7 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     all_stopwords = []
     all_stopwords_data = get_stopwords_data()
     all_stopwords = [sw.get("word", "").lower() for sw in all_stopwords_data if "word" in sw]
+    
     # Составляем контекст для ИИ с полной информацией
     context = ""
     if description:
@@ -310,9 +408,9 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     if replacement:
         context += f"Рекомендуемая замена: {replacement}\n"
     
-    # Добавляем информацию о всех стоп-словах
+    # Добавляем информацию о всех стоп-словах (передаем полный список без ограничений)
     if all_stopwords:
-        context += f"\nСписок основных стоп-слов для проверки: {', '.join(all_stopwords[:15])}{'...' if len(all_stopwords) > 15 else ''}\n"
+        context += f"\nСписок основных стоп-слов для проверки: {', '.join(all_stopwords)}\n"
         
     # Создаем примеры правильных и неправильных решений для обучения AI
     examples = f"""
@@ -372,6 +470,7 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
                        f"ОРИГИНАЛ: \"{original_sentence}\"\n"
                        f"СТОП-СЛОВО: \"{stopword_word}\"\n"
                        f"ПЕРЕФРАЗ: \"{rephrased_sentence}\"\n\n"
+                       f"ТАБЛИЦА СТОП-СЛОВ С ОБЬЯСНЕНИЯМИ:"
                        f"{context}\n\n"
                        f"ИНСТРУКЦИЯ ПО ОЦЕНКЕ:\n\n"
                        f"1. СЧИТАЙТЕ ПРАВИЛЬНЫМ ОТВЕТОМ ТОЛЬКО:\n"
