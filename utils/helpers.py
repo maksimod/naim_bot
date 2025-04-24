@@ -106,7 +106,6 @@ def get_stopwords_data():
             "range": "A1:E100"  # Диапазон ячеек для чтения
         }
         
-        logger.info(f"Отправка запроса к API с параметрами: {payload}")
         
         # Добавляем тайм-аут запроса (10 секунд)
         response = requests.post(api_url, json=payload, timeout=10)
@@ -118,7 +117,6 @@ def get_stopwords_data():
         
         # Парсинг данных из ответа
         data = response.json()
-        logger.info(f"Получен ответ от API: {data.keys() if isinstance(data, dict) else 'не словарь'}")
         stopwords_data = []
         
         # Проверяем формат ответа API

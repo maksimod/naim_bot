@@ -409,7 +409,6 @@ async def send_test_question(update, context, edit_message=False):
         if "test_timer_job" in context.user_data:
             try:
                 context.user_data["test_timer_job"].schedule_removal()
-                logger.info("Таймер остановлен при завершении теста")
             except Exception as e:
                 logger.error(f"Ошибка при остановке таймера: {e}")
         
@@ -434,7 +433,6 @@ async def send_test_question(update, context, edit_message=False):
                 name=f"timer_{update.effective_chat.id}"
             )
             context.user_data["test_timer_job"] = job
-            logger.info(f"Запущен таймер для теста, оставшееся время: {time_str}")
         except Exception as e:
             logger.error(f"Ошибка при запуске таймера: {e}")
             logger.error(f"Параметры задания: {job_data}")
@@ -482,11 +480,9 @@ async def handle_test_completion(update, context):
         if "admin_test_results" not in context.user_data:
             context.user_data["admin_test_results"] = {}
         context.user_data["admin_test_results"][test_name] = passed
-        logger.info(f"Admin mode: Test {test_name} completed with score {score:.1f}%, result: {'PASS' if passed else 'FAIL'}")
     else:
         # Save test result to database
         db.update_test_result(user_id, test_name, passed)
-        logger.info(f"User {user_id} completed test {test_name} with score {score:.1f}%, result: {'PASS' if passed else 'FAIL'}")
     
     # Determine which stages should be unlocked based on the test
     # Unlock the next stage regardless of test result
@@ -584,7 +580,6 @@ async def handle_test_completion(update, context):
     if "test_timer_job" in context.user_data:
         try:
             context.user_data["test_timer_job"].schedule_removal()
-            logger.info("Таймер остановлен при завершении теста")
         except Exception as e:
             logger.error(f"Ошибка при остановке таймера: {e}")
         del context.user_data["test_timer_job"]
@@ -652,7 +647,6 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 # In admin mode, always mark answer as correct
                 is_correct = True
                 context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
-                logger.info(f"Admin mode: Automatically marking answer as correct. Total correct answers: {context.user_data.get('correct_answers', 0)}")
             else:
                 # Проверяем, совпадает ли выбранный ответ с правильным
                 # В файле теста индексы 0-based, а в кнопках 1-based, поэтому сравниваем напрямую
@@ -661,17 +655,13 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 if is_correct:
                     # Increment correct answers count
                     context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
-                    logger.info(f"Answer debug - Correct! Total correct answers: {context.user_data['correct_answers']}")
-                    logger.info(f"Answer debug - User selected option {answer_index} which matches correct answer {correct_answer}")
                 else:
-                    logger.info(f"Answer debug - Incorrect! Expected {correct_answer}, got {answer_index}")
-                    logger.info(f"Answer debug - User selected option {answer_index} but correct answer was {correct_answer}")
+                    pass
                 
                 # Останавливаем таймер перед обновлением UI, чтобы избежать гонки
                 if "test_timer_job" in context.user_data:
                     try:
                         context.user_data["test_timer_job"].schedule_removal()
-                        logger.info("Таймер остановлен для безопасной обработки ответа")
                         # Даем небольшую паузу для полной остановки таймера
                         await asyncio.sleep(0.1)
                     except Exception as e:
@@ -1108,7 +1098,6 @@ async def next_stopword_question(update, context):
         if "stopwords_timer_job" in context.user_data:
             try:
                 context.user_data["stopwords_timer_job"].schedule_removal()
-                logger.info("Таймер остановлен при переходе к следующему вопросу")
                 # Даем небольшую паузу для полной остановки таймера
                 await asyncio.sleep(0.1)
             except Exception as e:
@@ -1469,7 +1458,6 @@ async def send_stopword_question(update, context):
         if "stopwords_timer_job" in context.user_data:
             try:
                 context.user_data["stopwords_timer_job"].schedule_removal()
-                logger.info("Таймер остановлен при переходе к новому вопросу")
             except Exception as e:
                 logger.error(f"Ошибка при остановке таймера: {e}")
         
@@ -1502,7 +1490,6 @@ async def send_stopword_question(update, context):
                 name=f"stopwords_timer_{update.effective_chat.id}"
             )
             context.user_data["stopwords_timer_job"] = job
-            logger.info(f"Запущен таймер для теста стоп-слов, оставшееся время: {time_str}")
         except Exception as e:
             logger.error(f"Ошибка при запуске таймера: {e}")
     
@@ -1514,7 +1501,6 @@ async def handle_stopwords_test_completion(update, context):
     if "stopwords_timer_job" in context.user_data:
         try:
             context.user_data["stopwords_timer_job"].schedule_removal()
-            logger.info("Таймер остановлен при завершении теста")
         except Exception as e:
             logger.error(f"Ошибка при остановке таймера: {e}")
         del context.user_data["stopwords_timer_job"]
@@ -1618,7 +1604,6 @@ async def update_timer(context):
     
     # Проверяем блокировку - если идет обработка ответа, пропускаем обновление таймера
     if context_obj.user_data.get("processing_answer", False):
-        logger.info("Пропуск обновления таймера, так как идет обработка ответа")
         return
     
     # Проверяем, не изменился ли номер текущего вопроса в контексте
@@ -1626,13 +1611,11 @@ async def update_timer(context):
     
     # Если номер вопроса изменился, останавливаем этот таймер
     if context_current_question != current_question:
-        logger.info(f"Номер вопроса изменился: {current_question} -> {context_current_question}. Останавливаем таймер.")
         context.job.schedule_removal()
         return
     
     # Проверяем, не завершился ли уже тест
     if "test_data" not in context_obj.user_data:
-        logger.info("Тест завершен. Останавливаем таймер.")
         context.job.schedule_removal()
         return
     
@@ -1642,7 +1625,6 @@ async def update_timer(context):
     
     # Если время истекло, завершаем тест
     if remaining <= 0:
-        logger.info("Время теста истекло. Завершаем тест.")
         context.job.schedule_removal()
         
         # Заменяем сообщение на уведомление об истечении времени
@@ -1727,9 +1709,9 @@ async def update_timer(context):
                 except Exception as e:
                     logger.error(f"Ошибка при обновлении таймера с сохраненной клавиатурой: {e}")
             else:
-                logger.warning("Не удалось найти строку с таймером для обновления")
+                pass
         else:
-            logger.warning("Текст сообщения пуст")
+            pass
     except Exception as e:
         logger.error(f"Ошибка при обновлении таймера: {e}")
         # Не останавливаем таймер при ошибке, чтобы продолжить попытки обновления
@@ -1753,7 +1735,6 @@ async def update_stopwords_timer(context):
     
     # Проверяем блокировку - если идет обработка ответа, пропускаем обновление таймера
     if context_obj.user_data.get("processing_answer", False):
-        logger.info("Пропуск обновления таймера стоп-слов, так как идет обработка ответа")
         return
     
     # Проверяем, не изменился ли номер текущего вопроса в контексте
@@ -1762,13 +1743,11 @@ async def update_stopwords_timer(context):
     
     # Если номер вопроса изменился, останавливаем этот таймер
     if current_question_in_context != current_question:
-        logger.info(f"Номер вопроса изменился: {current_question} -> {current_question_in_context}. Останавливаем таймер.")
         context.job.schedule_removal()
         return
     
     # Проверяем, не завершился ли уже тест
     if "stopwords_test" not in context_obj.user_data:
-        logger.info("Тест завершен. Останавливаем таймер.")
         context.job.schedule_removal()
         return
     
@@ -1778,7 +1757,6 @@ async def update_stopwords_timer(context):
     
     # Если время истекло, завершаем тест
     if remaining <= 0:
-        logger.info("Время теста истекло. Завершаем тест.")
         context.job.schedule_removal()
         
         # Отправляем сообщение о завершении времени
@@ -1852,11 +1830,9 @@ async def test_timeout(update, context):
         if "admin_test_results" not in context.user_data:
             context.user_data["admin_test_results"] = {}
         context.user_data["admin_test_results"][test_name] = False
-        logger.info(f"Admin mode: Test {test_name} failed due to timeout")
     else:
         # Save test result to database
         db.update_test_result(user_id, test_name, False)
-        logger.info(f"User {user_id} failed test {test_name} due to timeout")
     
     # Determine which stages should be unlocked based on the test
     # Unlock the next stage regardless of test result
@@ -1908,7 +1884,6 @@ async def test_timeout(update, context):
     if "test_timer_job" in context.user_data:
         try:
             context.user_data["test_timer_job"].schedule_removal()
-            logger.info("Timer stopped due to test timeout")
         except Exception as e:
             logger.error(f"Error stopping timer due to timeout: {e}")
         del context.user_data["test_timer_job"]

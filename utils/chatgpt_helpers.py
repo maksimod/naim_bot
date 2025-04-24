@@ -11,9 +11,9 @@ from utils.helpers import get_stopwords_data
 load_dotenv()
 
 # Default settings
-DEFAULT_MODEL = "gpt-3.5-turbo-0125"
+DEFAULT_MODEL = "gpt-4.1-nano"
 DEFAULT_TEMPERATURE = 0.7
-DEFAULT_MAX_TOKENS = 1000
+DEFAULT_MAX_TOKENS = 5000
 
 # Global variables
 _api_key = None
@@ -31,11 +31,9 @@ def load_api_key():
     if api_key:
         if api_key.startswith("http://") or api_key.startswith("https://"):
             _api_url = api_key
-            logger.info(f"Local API URL loaded from environment: {_api_url}")
             return True
         else:
             _api_key = api_key
-            logger.info("OpenAI API key loaded from environment")
             return True
     
     logger.warning("API key/URL not found. Some features will be unavailable.")
@@ -47,20 +45,7 @@ async def call_openai_api(messages,
                           max_tokens=DEFAULT_MAX_TOKENS,
                           language="ru",
                           user_id=None):
-    """
-    Call OpenAI API or local API to get a response from the model.
-    
-    Args:
-        messages: List of message dicts for context
-        model: OpenAI model name
-        temperature: Generation temperature
-        max_tokens: Maximum tokens
-        language: Response language
-        user_id: ID пользователя для записи использования AI (опционально)
-    
-    Returns:
-        Response text or None on error
-    """
+
     if not _api_key and not _api_url:
         if not load_api_key():
             logger.error("API key/URL not found. Cannot perform request.")
@@ -187,28 +172,16 @@ async def call_openai_api(messages,
             return None
 
 def decode_unicode_string(text):
-    """
-    Decode a string containing Unicode sequences like \\uXXXX.
-    
-    Args:
-        text: String to decode
-    
-    Returns:
-        Decoded string
-    """
     if not isinstance(text, str):
         return text
-    
-    # If string doesn't contain Unicode sequences, return as is
+
     if '\\u' not in text:
         return text
     
     try:
-        # Try to decode through JSON
         decoded = json.loads(f'"{text}"')
         return decoded
     except json.JSONDecodeError:
-        # If failed, use regex
         try:
             pattern = '\\\\u([0-9a-fA-F]{4})'
             result = re.sub(pattern, lambda m: chr(int(m.group(1), 16)), text)
@@ -218,16 +191,6 @@ def decode_unicode_string(text):
             return text
 
 async def generate_ai_stopword_sentence(stopword_data, user_id=None):
-    """
-    Generate a sentence containing the stopword using AI.
-    
-    Args:
-        stopword_data: Dictionary with stopword data
-        user_id: ID пользователя для записи использования AI (опционально)
-    
-    Returns:
-        Generated sentence
-    """
     api_url = os.getenv("CHATGPT_API_KEY")
     
     stopword = stopword_data["word"]
@@ -238,11 +201,8 @@ async def generate_ai_stopword_sentence(stopword_data, user_id=None):
     
     # Получаем полный список всех стоп-слов для проверки
     all_stopwords = []
-    try:
-        all_stopwords_data = get_stopwords_data()
-        all_stopwords = [sw.get("word", "").lower() for sw in all_stopwords_data if "word" in sw]
-    except:
-        logger.error("Не удалось получить полный список стоп-слов")
+    all_stopwords_data = get_stopwords_data()
+    all_stopwords = [sw.get("word", "").lower() for sw in all_stopwords_data if "word" in sw]
     
     # Убираем текущее стоп-слово из списка всех стоп-слов
     other_stopwords = [w for w in all_stopwords if w.lower() != stopword.lower()]
@@ -256,16 +216,16 @@ async def generate_ai_stopword_sentence(stopword_data, user_id=None):
     
     # Добавляем информацию о других стоп-словах
     if other_stopwords:
-        context += f"\nВАЖНО: Предложение должно содержать ТОЛЬКО указанное стоп-слово '{stopword}'. НЕ ВКЛЮЧАЙТЕ другие стоп-слова: {', '.join(other_stopwords[:10])}{'...' if len(other_stopwords) > 10 else ''}\n"
+        context += f"\nВАЖНО: Предложение должно содержать указанное стоп-слово '{stopword}'. НЕ ВКЛЮЧАЙТЕ другие стоп-слова: {', '.join(other_stopwords[:10])}{'...' if len(other_stopwords) > 10 else ''}\n"
     
     messages = [
         {
             "role": "system",
-            "content": "Вы - специалист по деловой коммуникации. Ваша задача - создать одно короткое деловое предложение, которое содержит ТОЛЬКО ОДНО указанное стоп-слово и НЕ содержит других стоп-слов из запрещенного списка. Предложение должно быть естественным, лаконичным и реалистичным."
+            "content": "Вы - специалист по деловой коммуникации. Ваша задача - создать одно короткое деловое предложение, которое содержит ОДНО указанное стоп-слово и НЕ содержит других стоп-слов из запрещенного списка. Предложение должно быть естественным, лаконичным и реалистичным."
         },
         {
             "role": "user",
-            "content": f"Создайте одно короткое, реалистичное деловое предложение, включающее ТОЛЬКО указанное стоп-слово '{stopword}' и НЕ включающее никаких других стоп-слов из запрещенного списка.\n\n{context}\n\nПредложение должно:\n1) Содержать указанное стоп-слово '{stopword}'\n2) НЕ содержать никаких других стоп-слов\n3) Быть коротким (5-10 слов) и звучать естественно\n4) Подходить для делового общения\n\nОтветьте ТОЛЬКО одним предложением, без кавычек и пояснений."
+            "content": f"Создайте одно короткое, реалистичное деловое предложение, включающее указанное стоп-слово '{stopword}' и НЕ включающее никаких других стоп-слов из запрещенного списка.\n\n{context}\n\nПредложение должно:\n1) Содержать указанное стоп-слово '{stopword}'\n2) НЕ содержать никаких других стоп-слов\n3) Быть коротким (5-15 слов) и звучать естественно\n4) Подходить для делового общения\n\nОтветьте ТОЛЬКО одним предложением, без кавычек и пояснений."
         }
     ]
     
@@ -318,16 +278,6 @@ def extract_sentence_from_response(response_text):
     return response_text.strip().strip('"\'`').strip()
 
 def get_hardcoded_example(stopword_data):
-    """
-    Возвращает заготовленный пример предложения для стоп-слова,
-    если по какой-то причине не удалось сгенерировать через AI.
-    
-    Args:
-        stopword_data: Данные о стоп-слове
-    
-    Returns:
-        Пример предложения
-    """
     stopword = stopword_data["word"]
     examples = stopword_data.get("examples", [])
     
@@ -339,20 +289,6 @@ def get_hardcoded_example(stopword_data):
     return f"Пример предложения, содержащего слово '{stopword}'."
 
 async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, stopword, user_id=None):
-    """
-    Checks if the rephrased sentence:
-    1. Preserves the semantic meaning of the original
-    2. Не содержит стоп-слова
-    
-    Args:
-        original_sentence: Исходное предложение со стоп-словом
-        rephrased_sentence: Перефразированное предложение для проверки 
-        stopword: Стоп-слово, которое должно быть исключено
-        user_id: ID пользователя для записи использования AI (опционально)
-    
-    Returns:
-        Dict с результатами проверки
-    """
     # Если stopword - это словарь с полной информацией, извлекаем из него данные
     stopword_word = stopword
     description = ""
@@ -365,12 +301,8 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
     
     # Получаем полный список всех стоп-слов для проверки
     all_stopwords = []
-    try:
-        all_stopwords_data = get_stopwords_data()
-        all_stopwords = [sw.get("word", "").lower() for sw in all_stopwords_data if "word" in sw]
-    except:
-        logger.error("Не удалось получить полный список стоп-слов")
-    
+    all_stopwords_data = get_stopwords_data()
+    all_stopwords = [sw.get("word", "").lower() for sw in all_stopwords_data if "word" in sw]
     # Составляем контекст для ИИ с полной информацией
     context = ""
     if description:
@@ -405,52 +337,34 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
 ✅ ПРАВИЛЬНО - Пользователь удалил стоп-слово "Хорошо" и сохранил основную инструкцию.
 
 ПРИМЕР 4:
-Оригинал: "Мы предполагаем, что проект будет завершен вовремя."
-Стоп-слово: "предполагать"
-Перефраз: "Проект будет завершен вовремя"
-✅ ПРАВИЛЬНО - Пользователь полностью удалил модальную конструкцию со стоп-словом, оставив основное утверждение.
-
-ПРИМЕР 5:
-Оригинал: "Ну, возможно, стоит пересмотреть наш план маркетинговых мероприятий."
-Стоп-слово: "Ну, возможно"
-Перефраз: "Может быть стоит пересмотреть наш план маркетинговых мероприятий"
-❌ НЕПРАВИЛЬНО - "Может быть" - прямой синоним "возможно"
-
-ПРИМЕР 6:
 Оригинал: "Вы не так поняли!"
 Стоп-слово: "понять"
 Перефраз: "Вам нужно сосредоточиться и правильно меня услышать"
 ✅ ПРАВИЛЬНО - Пользователь полностью изменил конструкцию без использования концепта "понимания".
 
-ПРИМЕР 7:
+ПРИМЕР 5:
 Оригинал: "Товары предлагаются по разным ценам: дёшево или дорого."
 Стоп-слово: "дёшево или дорого"
 Перефраз: "Товары предлагаются по цене 20 и 40 рублей"
 ✅ ПРАВИЛЬНО - Пользователь заменил оценочные суждения на конкретные цены.
 
-ПРИМЕР 8:
+ПРИМЕР 6:
 Оригинал: "Я буду рад, если вы примете участие."
 Стоп-слово: "рад"
 Перефраз: "Примите участие"
 ✅ ПРАВИЛЬНО - Пользователь удалил эмоциональную составляющую и оставил ключевое действие.
 
-ПРИМЕР 9:
+ПРИМЕР 7:
 Оригинал: "Не знаю, какое решение принять в этой ситуации."
 Стоп-слово: "не знаю"
 Перефраз: "Я в раздумьях насчет решения в этой ситуации"
 ❌ НЕПРАВИЛЬНО - "В раздумьях" в данном контексте - синоним "не знаю"
-
-ПРИМЕР 10:
-Оригинал: "Пожалуйста, отправьте мне отчет к концу дня."
-Стоп-слово: "пожалуйста"
-Перефраз: "Отправьте мне отчет к концу дня."
-✅ ПРАВИЛЬНО - Пользователь удалил вежливое слово и оставил основную инструкцию.
 """
         
     messages = [
         {
             "role": "system",
-            "content": "Вы - эксперт по лингвистическому анализу, специализирующийся на оценке перефразированных предложений. Ваша задача - определить, правильно ли пользователь удалил стоп-слова из предложения. При оценке СТРОГО ПРИДЕРЖИВАЙТЕСЬ следующих принципов:\n\n1. ПРИНИМАЙТЕ удаление вводных фраз и любых частей предложения, содержащих стоп-слово, если основной смысл сохранен.\n\n2. ПРИНИМАЙТЕ полностью перестроенные предложения, где концепт, связанный со стоп-словом, передан другими способами.\n\n3. СЧИТАЙТЕ НЕПРАВИЛЬНЫМ ответы с ЛЮБЫМИ субъективными оценками - прилагательными 'красивый', 'прекрасный', 'хороший', 'плохой', 'странный' и другими качественными прилагательными.\n\n4. СЧИТАЙТЕ НЕПРАВИЛЬНЫМ ответы с ЛЮБЫМИ синонимами стоп-слов: 'не знаю'→'совневаюсь/в раздумьях', 'не уверен'→'не понимаю', 'возможно'→'может быть/вероятно', и т.д.\n\n5. ОТКЛОНЯЙТЕ ответы, где структура изменена, но сохранен тот же самый смысловой концепт, выраженный синонимами."
+            "content": "Вы - эксперт по лингвистическому анализу, специализирующийся на оценке перефразированных предложений. Ваша задача - определить, правильно ли пользователь удалил стоп-слова из предложения. При оценке СТРОГО ПРИДЕРЖИВАЙТЕСЬ следующих принципов:\n\n1. ПРИНИМАЙТЕ удаление вводных фраз и любых частей предложения, содержащих стоп-слово, если смысл предложения сохранен.\n\n2. ПРИНИМАЙТЕ полностью перестроенные предложения, где концепт, связанный со стоп-словом, передан другими способами.\n\n3. СЧИТАЙТЕ НЕПРАВИЛЬНЫМ ответы с ЛЮБЫМИ субъективными оценками - прилагательными 'красивый', 'прекрасный', 'хороший', 'плохой', 'странный' и другими качественными прилагательными.\n\n4. СЧИТАЙТЕ НЕПРАВИЛЬНЫМ ответы с ЛЮБЫМИ синонимами стоп-слов: 'не знаю'→'совневаюсь/в раздумьях', 'не уверен'→'не понимаю', 'возможно'→'может быть/вероятно', и т.д.\n\n5. СЧИТАЙТЕ НЕПРАВИЛЬНЫМИ ЛЮБЫЕ ОТВЕТЫ, СОДЕРЖАЩИЕ ХОТЯ БЫ ОДНО СТОП СЛОВО ИЛИ ЕГО СИНОНИМ ИЗ СПИСКА ЗАПРЕЩЕННЫХ СЛОВ!"
         },
         {
             "role": "user",
@@ -486,6 +400,16 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
         }
     ]
     
+
+    print("-"*100)
+    print(context)
+    print("+"*100)
+
+    logger.info("-"*100)
+    logger.info(context)
+    logger.info("+"*100)
+
+
     try:
         # Вызываем AI API с указанием русского языка
         response = await call_openai_api(messages, user_id=user_id, language="ru")
@@ -565,9 +489,9 @@ Only include the JSON object in your response."""
     try:
         response = await call_openai_api(
             messages=messages,
-            model="gpt-3.5-turbo-0125",
+            model="gpt-4.1-nano",
             temperature=0.3,
-            max_tokens=500,
+            max_tokens=5000,
             user_id=user_id
         )
         
