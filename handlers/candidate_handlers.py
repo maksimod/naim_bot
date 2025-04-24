@@ -904,99 +904,88 @@ async def process_stopword_answer(update, context, text):
     user_id = update.effective_user.id
     
     # Получаем текущий вопрос и стоп-слово из контекста
-    current_question = context.user_data.get("current_stopword_question", 0)
-    stopwords_data = context.user_data.get("stopwords_data", [])
+    test_data = context.user_data.get("stopwords_test", {})
+    current_question_idx = test_data.get("current_question", 0)
+    stopword_data = context.user_data.get("current_stopword", {})
     
-    if current_question >= len(stopwords_data):
-        await update.message.reply_text("Произошла ошибка. Пожалуйста, начните тест заново.")
-        return await send_main_menu(update, context, edit=True)
+    if not stopword_data:
+        await update.message.reply_text(
+            "Произошла ошибка при обработке вашего ответа. Пожалуйста, попробуйте снова."
+        )
+        return
     
     # Получаем текущее стоп-слово и предложение
-    stopword_data = stopwords_data[current_question]
-    original_sentence = context.user_data.get("current_stopword_sentence", "")
+    word = stopword_data.get("word", "")
+    original_sentence = stopword_data.get("sentence", "")
     
-    if not original_sentence:
-        await update.message.reply_text("Произошла ошибка. Пожалуйста, начните тест заново.")
-        return await send_main_menu(update, context, edit=True)
+    if not word or not original_sentence:
+        await update.message.reply_text(
+            "Произошла ошибка при обработке вашего ответа. Пожалуйста, попробуйте снова."
+        )
+        return
     
-    # Отправляем сообщение о проверке
-    processing_message = await update.message.reply_text("⏳ Проверяем ваш ответ...")
+    # Отмечаем, что больше не ждем ответа
+    context.user_data["awaiting_stopword_answer"] = False
     
-    # Проверяем ответ с помощью AI
+    # Проверяем ответ с помощью ИИ, используя полные данные о стоп-слове
     try:
-        # Отправляем на проверку через AI
+        # Используем полный объект с данными о стоп-слове для проверки
         result = await verify_stopword_rephrasing_ai(
-            original_sentence, 
-            text, 
-            stopword_data["word"],
+            original_sentence=original_sentence,
+            rephrased_sentence=text,
+            stopword=stopword_data,  # Передаем весь объект с данными
             user_id=user_id
         )
         
-        # Получаем результаты проверки
         preserves_meaning = result.get("preserves_meaning", False)
         excludes_stopword = result.get("excludes_stopword", False)
-        feedback = result.get("feedback", "")
         
-        # Определяем, прошел ли пользователь проверку
-        passed = preserves_meaning and excludes_stopword
-        
-        # Удаляем сообщение о проверке
-        await context.bot.delete_message(
-            chat_id=update.effective_chat.id, 
-            message_id=processing_message.message_id
-        )
-        
-        # Сохраняем ответ и результат проверки
-        if "stopword_answers" not in context.user_data:
-            context.user_data["stopword_answers"] = []
-        
-        context.user_data["stopword_answers"].append({
-            "question": current_question,
-            "original_sentence": original_sentence,
-            "user_answer": text,
-            "passed": passed
-        })
-        
-        # Отвечаем пользователю
-        if passed:
-            # Успешный ответ
+        # Если ответ сохраняет смысл и не содержит стоп-слово
+        if preserves_meaning and excludes_stopword:
+            # Увеличиваем счетчик правильных ответов
+            test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
+            context.user_data["stopwords_test"] = test_data
+            
+            # Отправляем сообщение об успехе
             await update.message.reply_text(
                 f"✅ Отлично! Вы успешно перефразировали предложение без использования стоп-слова.\n\n"
-                f"Ваш ответ: {text}\n\n"
-                f"{feedback}"
+                f"Оригинал: {original_sentence}\n"
+                f"Ваш ответ: {text}"
             )
         else:
-            # Неудачный ответ
-            await update.message.reply_text(
-                f"❌ К сожалению, ваш ответ не соответствует требованиям.\n\n"
-                f"Ваш ответ: {text}\n\n"
-                f"{feedback}\n\n"
-                f"Пожалуйста, попробуйте еще раз."
-            )
-            return CandidateStates.STOPWORDS_TEST
-        
-        # Увеличиваем счетчик вопроса
-        context.user_data["current_stopword_question"] = current_question + 1
-        
-        # Проверяем, есть ли еще вопросы
-        if context.user_data["current_stopword_question"] >= len(stopwords_data):
-            # Завершаем тест
-            return await handle_stopwords_test_completion(update, context)
-        else:
-            # Отправляем следующий вопрос
-            return await send_stopword_question(update, context)
+            # Отправляем сообщение о неудаче с объяснением
+            error_message = ""
+            if not preserves_meaning and not excludes_stopword:
+                error_message = f"❌ Ваш ответ не сохраняет смысл оригинального предложения и все еще содержит стоп-слово '{word}'."
+            elif not preserves_meaning:
+                error_message = "❌ Ваш ответ не сохраняет смысл оригинального предложения."
+            elif not excludes_stopword:
+                error_message = f"❌ Ваш ответ все еще содержит стоп-слово '{word}'."
             
+            # Если есть рекомендуемая замена, добавляем ее в сообщение
+            replacement = stopword_data.get("replacement", "")
+            if replacement:
+                error_message += f"\n\nРекомендуемая замена для '{word}': {replacement}"
+                
+            # Добавляем описание, если оно есть
+            description = stopword_data.get("description", "")
+            if description:
+                error_message += f"\n\nОписание проблемы со словом '{word}': {description}"
+            
+            await update.message.reply_text(error_message)
     except Exception as e:
-        logger.error(f"Error processing stopword answer: {e}")
-        # Удаляем сообщение о проверке
-        await context.bot.delete_message(
-            chat_id=update.effective_chat.id, 
-            message_id=processing_message.message_id
-        )
+        logger.error(f"Ошибка при проверке перефразирования: {e}")
         await update.message.reply_text(
             "Произошла ошибка при проверке вашего ответа. Пожалуйста, попробуйте еще раз."
         )
-        return CandidateStates.STOPWORDS_TEST
+        return
+    
+    # Переходим к следующему вопросу
+    test_data["current_question"] = current_question_idx + 1
+    context.user_data["stopwords_test"] = test_data
+    
+    # Отправляем следующий вопрос
+    await send_stopword_question(update, context)
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /start command."""
@@ -1122,75 +1111,68 @@ async def handle_stopword_answer(update, context):
     query = update.callback_query
     await query.answer()
     
-    # Устанавливаем блокировку обновления таймера
-    context.user_data["processing_answer"] = True
+    # Раскодируем выбранный вариант
+    choice = query.data.split('_')[2]
     
-    try:
-        # Останавливаем таймер, если он существует
-        if "stopwords_timer_job" in context.user_data:
-            try:
-                context.user_data["stopwords_timer_job"].schedule_removal()
-                logger.info("Таймер остановлен при обработке ответа на вопрос")
-                # Даем небольшую паузу для полной остановки таймера
-                await asyncio.sleep(0.1)
-            except Exception as e:
-                logger.error(f"Ошибка при остановке таймера: {e}")
-        
-        
-        # Получаем выбранный вариант ответа
-        answer_idx = int(query.data.split("_")[-1])
-        
-        # Получаем данные теста
-        test_data = context.user_data.get("stopwords_test", {})
-        current_question = test_data.get("current_question", 0)
-        stopwords = test_data.get("stopwords", [])
-        
-        if current_question >= len(stopwords):
-            # Если вопросы закончились, показываем результаты
-            return await handle_stopwords_test_completion(update, context)
-        
-        # Получаем текущий стоп-слово и его данные
-        current_stopword = stopwords[current_question]
-        selected_answer = current_stopword.get("answers", [])[answer_idx] if answer_idx < len(current_stopword.get("answers", [])) else ""
-        
-        # Проверяем, является ли ответ правильным (упрощенная проверка)
-        # В реальном тесте используется AI для проверки пользовательского ответа
-        is_correct = True  # Предполагаем, что все варианты правильные, т.к. это варианты без стоп-слова
-        
-        # Инкрементируем счетчик правильных ответов
-        if is_correct:
-            test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
-        
-        # Показываем результат ответа
-        stopword = current_stopword.get("word", "")
-        original_sentence = current_stopword.get("sentence", "")
-        
-        result_emoji = "✅" if is_correct else "❌"
-        result_message = (
-            f"{result_emoji} {'Правильно!' if is_correct else 'Неправильно!'}\n\n"
-        )
-        
-        # Отправляем сообщение с результатом
-        keyboard = [
-            [InlineKeyboardButton("➡️ Следующий вопрос", callback_data="next_stopword_question")],
-            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
+    # Получаем данные теста
+    test_data = context.user_data.get("stopwords_test", {})
+    current_question_idx = test_data.get("current_question", 0)
+    all_stopwords = test_data.get("stopwords", [])
+    
+    # Проверяем, есть ли текущий вопрос
+    if current_question_idx >= len(all_stopwords):
         await query.edit_message_text(
-            result_message,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+            "Произошла ошибка при обработке ответа. Тест будет перезапущен.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ])
         )
-        
-        # Переходим к следующему вопросу
-        test_data["current_question"] = current_question + 1
+        return CandidateStates.MAIN_MENU
+    
+    # Получаем текущий стоп-слово и его данные
+    current_stopword = current_question_idx < len(all_stopwords) and all_stopwords[current_question_idx] or {}
+    
+    # Получаем дополнительные данные из стоп-слова, если они есть
+    word = current_stopword.get("word", "")
+    description = current_stopword.get("description", "")
+    replacement = current_stopword.get("replacement", "")
+    
+    # Все варианты ответа предлагаются ИИ, и все они без стоп-слова
+    is_correct = True  # Предполагаем, что все варианты правильные, т.к. это варианты без стоп-слова
+    
+    # Увеличиваем счетчик правильных ответов, если ответ правильный
+    if is_correct:
+        test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
         context.user_data["stopwords_test"] = test_data
         
-        return CandidateStates.STOPWORDS_TEST
-    finally:
-        # Снимаем блокировку обновления таймера
-        context.user_data.pop("processing_answer", None)
+        # Отображаем сообщение об успехе с использованием полных данных о стоп-слове
+        success_message = f"✅ Правильно! Вы успешно использовали альтернативу стоп-слову '{word}'."
+        
+        # Добавляем информацию о замене, если она есть
+        if replacement:
+            success_message += f"\n\nРекомендуемая замена: {replacement}"
+        
+        # Добавляем описание, если оно есть
+        if description:
+            success_message += f"\n\nПочему это стоп-слово: {description}"
+        
+        await query.edit_message_text(
+            success_message,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶️ Следующий вопрос", callback_data="next_stopword")]
+            ])
+        )
+    else:
+        # Если неправильный ответ (маловероятно, так как все варианты должны быть верными)
+        await query.edit_message_text(
+            f"❌ К сожалению, этот вариант не подходит.\n\n"
+            f"Попробуйте выбрать другой вариант или вернитесь в меню.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+            ])
+        )
+    
+    return CandidateStates.STOPWORDS_TEST
 
 async def handle_where_to_start(update, context):
     """Обработка раздела "С чего начать" с тестом на стоп-слова"""

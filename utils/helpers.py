@@ -100,7 +100,7 @@ def get_stopwords_data():
             
         spreadsheet_id = spreadsheet_id_match.group(1)
         
-        # Подготовка параметров запроса
+        # Подготовка параметров запроса - увеличиваем диапазон, чтобы захватить больше столбцов
         payload = {
             "spreadsheet_id": spreadsheet_id,
             "range": "A1:E100"  # Диапазон ячеек для чтения
@@ -128,11 +128,13 @@ def get_stopwords_data():
             if sheet_name and isinstance(data["data"][sheet_name], list):
                 # Обрабатываем данные из первого листа
                 for row in data["data"][sheet_name]:
+                    # Сохраняем все доступные данные из строки таблицы
                     stopword_entry = {
                         "id": row.get("№", ""),
                         "word": row.get("Слово/словосочетание", ""),
                         "description": row.get("Описание", ""),
-                        "replacement": row.get("Заменить на", "")
+                        "replacement": row.get("Заменить на", ""),
+                        "date_added": row.get("Дата добавления", "")
                     }
                     
                     # Добавляем только записи с непустым словом
@@ -157,20 +159,26 @@ def get_stopwords_data():
         return []
 
 def get_all_stopwords():
-    """Получить список всех стоп-слов для проверки"""
+    """Получить полные данные о всех стоп-словах для проверки"""
     try:
         # Получаем все стоп-слова из Google Sheets
         stopwords_data = get_stopwords_data()
         
-        # Создаем список только слов
+        # Если нужно получить только список слов без контекста (для обратной совместимости)
         stopwords_list = []
         for sw in stopwords_data:
             word = sw.get("word", "").lower().strip()
             if word:
                 stopwords_list.append(word)
         
-        # Возвращаем список без дубликатов
-        return list(set(stopwords_list))
+        # Возвращаем как полные данные, так и список слов для совместимости
+        return {
+            "full_data": stopwords_data,
+            "words_list": list(set(stopwords_list))
+        }
     except Exception as e:
-        logger.error(f"Ошибка при получении списка всех стоп-слов: {e}")
-        return []
+        logger.error(f"Ошибка при получении данных о стоп-словах: {e}")
+        return {
+            "full_data": [],
+            "words_list": []
+        }

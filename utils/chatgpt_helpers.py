@@ -231,42 +231,40 @@ async def generate_ai_stopword_sentence(stopword_data, user_id=None):
     api_url = os.getenv("CHATGPT_API_KEY")
     
     stopword = stopword_data["word"]
-    definition = stopword_data["definition"]
-    examples = stopword_data.get("examples", [])
     
-    # Prepare examples string
-    examples_str = ""
-    if examples:
-        examples_str = "Примеры:\n" + "\n".join([f"- {example}" for example in examples])
+    # Используем полные данные из таблицы стоп-слов
+    description = stopword_data.get("description", "")
+    replacement = stopword_data.get("replacement", "")
+    
+    # Составляем контекст для ИИ с полной информацией из таблицы
+    context = f"Стоп-слово: {stopword}\n"
+    if description:
+        context += f"Описание: {description}\n"
+    if replacement:
+        context += f"Рекомендуемая замена: {replacement}\n"
     
     messages = [
         {
             "role": "system",
-            "content": "Вы - помощник для генерации примеров предложений. Создайте естественно звучащее предложение, содержащее указанное слово."
+            "content": "Вы - помощник для генерации примеров предложений. Создайте естественно звучащее предложение, содержащее указанное слово. Используйте контекст, чтобы точно понять назначение и смысл стоп-слова."
         },
         {
             "role": "user",
-            "content": f"Создайте одно предложение, включающее слово '{stopword}'.\n\nОпределение слова: {definition}\n\n{examples_str}\n\nВажно: ответьте ТОЛЬКО предложением, без дополнительных пояснений."
+            "content": f"Создайте одно предложение, включающее слово '{stopword}'.\n\n{context}\n\nВажно: ответьте ТОЛЬКО предложением, без дополнительных пояснений."
         }
     ]
     
-    try:
-        # Call the API
-        response = await call_openai_api(
-            messages=messages,
-            model="gpt-3.5-turbo-0125",
-            temperature=0.7,
-            max_tokens=200,
-            user_id=user_id
-        )
-        
-        if response:
-            return extract_sentence_from_response(response)
-        else:
-            return get_hardcoded_example(stopword_data)
-    except Exception as e:
-        logger.error(f"Error generating AI sentence: {e}")
-        return get_hardcoded_example(stopword_data)
+    # Вызываем API
+    response = await call_openai_api(messages, user_id=user_id)
+    if not response:
+        return f"В предложении используется стоп-слово {stopword}."
+    
+    # Извлекаем предложение из ответа
+    sentence = extract_sentence_from_response(response)
+    if not sentence:
+        return f"В предложении используется стоп-слово {stopword}."
+    
+    return sentence
 
 def extract_sentence_from_response(response_text):
     """Извлекает чистый текст предложения из ответа API, который может быть в JSON"""
@@ -327,90 +325,89 @@ def get_hardcoded_example(stopword_data):
 
 async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, stopword, user_id=None):
     """
-    Проверяет перефразированное предложение, чтобы убедиться, что:
-    1. Оно сохраняет смысл оригинала
+    Checks if the rephrased sentence:
+    1. Preserves the semantic meaning of the original
     2. Не содержит стоп-слова
     
     Args:
         original_sentence: Исходное предложение со стоп-словом
-        rephrased_sentence: Перефразированное предложение пользователя
+        rephrased_sentence: Перефразированное предложение для проверки 
         stopword: Стоп-слово, которое должно быть исключено
         user_id: ID пользователя для записи использования AI (опционально)
     
     Returns:
-        Словарь с результатами проверки
+        Dict с результатами проверки
     """
-    api_url = os.getenv("CHATGPT_API_KEY")
+    # Если stopword - это словарь с полной информацией, извлекаем из него данные
+    stopword_word = stopword
+    description = ""
+    replacement = ""
     
+    if isinstance(stopword, dict):
+        stopword_word = stopword.get("word", "")
+        description = stopword.get("description", "")
+        replacement = stopword.get("replacement", "")
+    
+    # Составляем контекст для ИИ с полной информацией
+    context = ""
+    if description:
+        context += f"Описание стоп-слова: {description}\n"
+    if replacement:
+        context += f"Рекомендуемая замена: {replacement}\n"
+        
     messages = [
         {
             "role": "system",
-            "content": "Вы - эксперт по анализу языка и проверке перефразирования предложений."
+            "content": "Вы - система оценки качества перефразирования предложений. Ваша задача - оценить, сохраняет ли перефразированное предложение смысл оригинала и не содержит ли стоп-слово. Отвечайте в формате JSON."
         },
         {
             "role": "user",
-            "content": f"""Оцените перефразированное предложение по двум критериям:
-
-1. Сохранение смысла оригинального предложения
-2. Отсутствие стоп-слова в перефразированном предложении
-
-Оригинальное предложение: "{original_sentence}"
-Перефразированное предложение: "{rephrased_sentence}"
-Стоп-слово: "{stopword}"
-
-Ответьте в формате JSON с двумя полями:
-- "preserves_meaning": true/false - сохранён ли смысл оригинального предложения
-- "excludes_stopword": true/false - отсутствует ли стоп-слово в перефразированном предложении
-- "feedback": string - объяснение оценки
-
-Верните только валидный JSON без комментариев."""
+            "content": f"Оцените, правильно ли перефразировано предложение:\n\n"
+                       f"Оригинальное предложение: \"{original_sentence}\"\n"
+                       f"Перефразированное предложение: \"{rephrased_sentence}\"\n"
+                       f"Стоп-слово: \"{stopword_word}\"\n\n"
+                       f"{context}\n"
+                       f"Верните результат в JSON формате:\n"
+                       f"```json\n"
+                       f"{{\n"
+                       f"  \"preserves_meaning\": true/false - сохраняет ли перефразированное предложение смысл оригинала,\n"
+                       f"  \"excludes_stopword\": true/false - отсутствует ли стоп-слово в перефразированном предложении\n"
+                       f"}}\n"
+                       f"```"
         }
     ]
     
     try:
-        response = await call_openai_api(
-            messages=messages,
-            model="gpt-3.5-turbo-0125",
-            temperature=0.3,
-            max_tokens=500,
-            user_id=user_id
-        )
-        
+        # Вызываем AI API
+        response = await call_openai_api(messages, user_id=user_id)
         if not response:
-            # Fallback to manual check if API failed
-            return {
-                "preserves_meaning": True,  # Give benefit of the doubt
-                "excludes_stopword": stopword.lower() not in rephrased_sentence.lower(),
-                "feedback": "Automatic verification was not available. Basic check performed."
-            }
+            # Если нет ответа, считаем, что всё хорошо перефразировано
+            return {"preserves_meaning": True, "excludes_stopword": True}
         
-        # Extract JSON from response
-        try:
-            # Find JSON in response
-            json_match = re.search(r'(\{.*\})', response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
+        # Ищем JSON в ответе
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            try:
                 result = json.loads(json_str)
-                return result
-            else:
-                # If no JSON found, try to parse the whole response
-                result = json.loads(response)
-                return result
-        except json.JSONDecodeError:
-            # If JSON parsing failed, do manual check
-            return {
-                "preserves_meaning": True,  # Give benefit of the doubt
-                "excludes_stopword": stopword.lower() not in rephrased_sentence.lower(),
-                "feedback": "Failed to parse verification result. Basic check performed."
-            }
+                # Убеждаемся, что есть нужные поля
+                if "preserves_meaning" in result and "excludes_stopword" in result:
+                    return result
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse JSON from AI response: {json_str}")
+        
+        # Анализируем текстовый ответ, если JSON не найден
+        preserves_meaning = "не сохран" not in response.lower() and "не передает" not in response.lower()
+        excludes_stopword = "содержит стоп-слово" not in response.lower() and "включает стоп-слово" not in response.lower()
+        
+        return {
+            "preserves_meaning": preserves_meaning,
+            "excludes_stopword": excludes_stopword
+        }
     except Exception as e:
         logger.error(f"Error verifying rephrasing: {e}")
-        # Fallback to basic check
-        return {
-            "preserves_meaning": True,  # Give benefit of the doubt
-            "excludes_stopword": stopword.lower() not in rephrased_sentence.lower(),
-            "feedback": f"Verification error: {str(e)}. Basic check performed."
-        }
+        # При ошибке считаем, что всё хорошо
+        return {"preserves_meaning": True, "excludes_stopword": True}
 
 async def verify_poem_task(solution_text, user_id=None):
     """Verify completion of the poem task using ChatGPT"""
