@@ -957,16 +957,54 @@ async def process_stopword_answer(update, context, text):
             # Отправляем сообщение о неудаче с объяснением
             error_message = ""
             
+            # Проверяем, не является ли ответ простым сокращением предложения, сохраняющим основной смысл
+            # Например: "Ты достиг многих целей, но не хвастайся этим." -> "Ты достиг многих целей."
+            if text in original_sentence and len(text.split()) >= 3 and not word.lower() in text.lower():
+                # Получаем все стоп-слова из таблицы
+                all_stopwords = []
+                try:
+                    from utils.helpers import get_stopwords_data
+                    all_stopwords_data = get_stopwords_data()
+                    all_stopwords = [sw.get("word", "").lower() for sw in all_stopwords_data if "word" in sw]
+                except Exception as e:
+                    logger.error(f"Ошибка при получении полного списка стоп-слов: {e}")
+                
+                # Проверяем, есть ли в ответе другие стоп-слова
+                contains_other_stopwords = False
+                for stopword in all_stopwords:
+                    if stopword.lower() in text.lower():
+                        contains_other_stopwords = True
+                        break
+                
+                if not contains_other_stopwords:
+                    # Увеличиваем счетчик правильных ответов, т.к. это правильное решение
+                    test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
+                    context.user_data["stopwords_test"] = test_data
+                    
+                    await update.message.reply_text(
+                        f"✅ Хорошо! Вы оставили ключевую часть предложения без стоп-слова.\n\n"
+                        f"Оригинал: {original_sentence}\n"
+                        f"Ваш ответ: {text}"
+                    )
+                    
+                    # Переходим к следующему вопросу
+                    test_data["current_question"] = current_question_idx + 1
+                    context.user_data["stopwords_test"] = test_data
+                    
+                    # Отправляем следующий вопрос
+                    await send_stopword_question(update, context)
+                    return
+            
             # Специальное сообщение для случая с синонимами
             if used_synonym:
-                error_message = f"❌ Вы просто заменили стоп-слово '{word}' его синонимом. Это не решает проблему!\n\n" \
+                error_message = f"❌ Вы заменили стоп-слово его синонимом. Это не решает проблему!\n\n" \
                                f"Необходимо полностью перестроить предложение, а не заменять слово синонимом."
             elif not preserves_meaning and not excludes_stopword:
                 error_message = f"❌ Ваш ответ не сохраняет смысл оригинального предложения и все еще содержит стоп-слово или его синоним."
             elif not preserves_meaning:
                 error_message = "❌ Ваш ответ не сохраняет смысл оригинального предложения."
             elif not excludes_stopword:
-                error_message = f"❌ Ваш ответ все еще содержит стоп-слово '{word}' или его синоним."
+                error_message = f"❌ Ваш ответ все еще содержит одно или несколько стоп-слов или их синонимов."
                 
             # Добавляем описание, если оно есть
             description = stopword_data.get("description", "")
