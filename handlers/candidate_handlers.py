@@ -203,24 +203,20 @@ async def send_main_menu(update, context, message=None, edit=False):
             
             # Special handling for logic_test - unlock after where_to_start test regardless of result
             if stage_id == "logic_test":
-                # Check if there's a test result for where_to_start_test
-                if "where_to_start_test" in display_test_results:
-                    # If there's a test result, this stage should be unlocked regardless of pass/fail
-                    if stage_id not in unlocked_stages:
-                        db.unlock_stage(user_id, "logic_test")
-                        unlocked_stages = db.get_user_unlocked_stages(user_id)  # Refresh unlocked stages
-                    
-                    # Check if there's a test result for this stage
-                    if "logic_test_result" in display_test_results:
-                        if display_test_results["logic_test_result"]:
-                            # Test passed
-                            stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
-                        else:
-                            # Test failed
-                            stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
-                    elif stage_id in unlocked_stages:
-                        # No test result - show as unlocked
-                        stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
+                # Check if there's a test result for logic_test_result
+                if "logic_test_result" in display_test_results:
+                    # If there's a test result, show pass/fail indicator
+                    if display_test_results["logic_test_result"]:
+                        # Test passed
+                        stage_name = stage_name.replace("🔴", "✅")  # Replace red circle with checkmark
+                        stage_name = stage_name.replace("🟢", "✅")  # Also replace green circle with checkmark if needed
+                    else:
+                        # Test failed
+                        stage_name = stage_name.replace("🔴", "❌")  # Replace red circle with X mark
+                        stage_name = stage_name.replace("🟢", "❌")  # Also replace green circle with X mark if needed
+                elif stage_id in unlocked_stages:
+                    # No test result - show as unlocked
+                    stage_name = stage_name.replace("🔴", "🟢")  # Replace red circle with green circle
             
             # Special handling for preparation_materials - unlock after logic_test result regardless of result
             if stage_id == "preparation_materials":
@@ -1953,3 +1949,97 @@ async def process_poem_task(update, context, text):
             "Произошла ошибка при проверке стихотворения. Пожалуйста, попробуйте позже."
         )
         return await send_main_menu(update, context, edit=True)
+
+async def process_test_solution(update, context, text):
+    """Обрабатывает решение тестовой задачи, отправленное пользователем"""
+    user_id = update.effective_user.id
+    
+    # Проверяем длину текста
+    if len(text) < 50:
+        await update.message.reply_text(
+            "Ваше решение слишком короткое. Пожалуйста, отправьте полное решение задачи."
+        )
+        return CandidateStates.WAITING_FOR_SOLUTION
+    
+    # Отправляем сообщение о проверке
+    processing_message = await update.message.reply_text("⏳ Проверяем ваше решение...")
+    
+    try:
+        # Здесь должен быть вызов ИИ для анализа решения
+        # В этой версии просто устанавливаем случайный результат для демонстрации
+        
+        # Проверка текста на наличие ключевых фраз
+        is_valid = False
+        feedback = "Решение не соответствует требованиям задачи."
+        
+        # Простая проверка на наличие ключевых слов/фраз
+        key_phrases = ["claude", "ai", "искусственный интеллект", "нейросеть", "chatgpt", "gpt"]
+        if any(phrase in text.lower() for phrase in key_phrases):
+            is_valid = True
+            feedback = "Хорошая работа! Ваше решение соответствует требованиям задачи."
+        
+        # Удаляем сообщение о проверке
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id, 
+                message_id=processing_message.message_id
+            )
+        except Exception as e:
+            logger.error(f"Error deleting processing message: {e}")
+        
+        # Сбрасываем статус ожидания решения
+        context.user_data["awaiting_test_solution"] = False
+        
+        # Сохраняем результат теста в базе данных
+        db.update_test_result(user_id, "take_test_result", is_valid)
+        
+        # Разблокируем следующий этап независимо от результата
+        db.unlock_stage(user_id, "interview_prep")
+        
+        if is_valid:
+            # Отправляем сообщение об успешном выполнении
+            await update.message.reply_text(
+                f"✅ Поздравляем! Ваше решение принято!\n\n{feedback}\n\n"
+                f"Следующий этап разблокирован. Вы можете продолжить работу с ботом."
+            )
+        else:
+            # Отправляем сообщение о неудачном выполнении
+            await update.message.reply_text(
+                f"❌ К сожалению, ваше решение не соответствует требованиям.\n\n{feedback}\n\n"
+                f"Однако следующий этап всё равно разблокирован, и вы можете продолжить работу с ботом."
+            )
+        
+        # Возвращаемся в главное меню
+        return await send_main_menu(update, context, edit=True)
+        
+    except Exception as e:
+        logger.error(f"Error processing test solution: {e}")
+        
+        # Удаляем сообщение о проверке
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id, 
+                message_id=processing_message.message_id
+            )
+        except Exception as delete_error:
+            logger.error(f"Error deleting processing message: {delete_error}")
+        
+        await update.message.reply_text(
+            "Произошла ошибка при проверке вашего решения. Пожалуйста, попробуйте ещё раз или свяжитесь с разработчиками."
+        )
+        return CandidateStates.WAITING_FOR_SOLUTION
+
+async def process_resume(update, context):
+    """Processes the resume submitted by the user"""
+    user_id = update.effective_user.id
+    
+    # Log the resume processing attempt
+    logger.info(f"Processing resume for user {user_id}")
+    
+    # Send confirmation message to user
+    await update.message.reply_text(
+        "Спасибо! Ваше резюме получено и будет рассмотрено."
+    )
+    
+    # Return to main menu
+    return await send_main_menu(update, context, edit=True)

@@ -712,29 +712,16 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⬅️ Отмена и возврат в меню", callback_data="back_to_menu")]
         ])
         
-        try:
-            # Try to edit the current message
-            await query.edit_message_text(
-                message_text,
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            # If editing fails, send a new message
-            logger.error(f"Error editing message: {e}")
-            await query.message.reply_text(
-                message_text,
-                reply_markup=reply_markup
-            )
+        await query.edit_message_text(
+            text=message_text,
+            reply_markup=reply_markup
+        )
         
-        # Set the state to indicate we're waiting for a solution message
-        context.user_data["awaiting_solution_message"] = True
-        # Проверка, что состояние WAITING_FOR_SOLUTION существует
-        if hasattr(CandidateStates, 'WAITING_FOR_SOLUTION'):
-            return CandidateStates.WAITING_FOR_SOLUTION
-        else:
-            # Если состояние не существует, используем TAKE_TEST как запасной вариант
-            logger.warning("CandidateStates.WAITING_FOR_SOLUTION not found, using TAKE_TEST instead")
-            return CandidateStates.TAKE_TEST
+        # Set flag to await text solution
+        context.user_data["awaiting_solution"] = False  # Reset old flag
+        context.user_data["awaiting_test_solution"] = True  # Set correct flag for handle_message
+        
+        return CandidateStates.WAITING_FOR_SOLUTION
     
     # Handler for interview_prep
     elif (query.data == "interview_prep" and "interview_prep" in unlocked_stages) or admin_mode and query.data == "interview_prep":
