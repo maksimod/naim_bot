@@ -936,6 +936,10 @@ async def process_stopword_answer(update, context, text):
                 f"Ваш ответ: {rephrased_sentence}\n"
             )
             
+        # Сбрасываем флаг обработки
+        context.user_data["processing_answer"] = False
+        context.user_data["awaiting_stopword_answer"] = True
+            
         # Переходим к следующему вопросу
         await next_question(update, context)
         return
@@ -980,12 +984,11 @@ async def process_stopword_answer(update, context, text):
     # Отправляем результат проверки
     await update.effective_message.reply_text(result_message)
     
+    # Сбрасываем флаг обработки, но ОСТАВЛЯЕМ флаг ожидания ответа
+    context.user_data["processing_answer"] = False  
+    
     # Переходим к следующему вопросу
     await next_question(update, context)
-    
-    # Сбрасываем флаг ожидания ответа
-    context.user_data["awaiting_stopword_answer"] = False
-    context.user_data["processing_answer"] = False
 
 async def next_question(update, context):
     """Вспомогательная функция для перехода к следующему вопросу"""
@@ -995,11 +998,7 @@ async def next_question(update, context):
     test_data["current_question"] = current_question_idx + 1
     context.user_data["stopwords_test"] = test_data
     
-    # Сбрасываем флаг ожидания ответа и обработки
-    context.user_data["awaiting_stopword_answer"] = False
-    context.user_data["processing_answer"] = False
-    
-    # Отправляем следующий вопрос
+    # Отправляем следующий вопрос, который установит awaiting_stopword_answer в True
     await send_stopword_question(update, context)
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1103,7 +1102,7 @@ async def next_stopword_question(update, context):
     test_data["current_question"] = current_question + 1
     context.user_data["stopwords_test"] = test_data
     
-    # Отправляем следующий вопрос
+    # Отправляем следующий вопрос - это установит awaiting_stopword_answer в True
     await send_stopword_question(update, context)
     
     return CandidateStates.STOPWORDS_TEST
