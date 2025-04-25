@@ -428,8 +428,8 @@ async def send_test_question(update, context, edit_message=False):
             # Запускаем таймер, который будет обновлять сообщение каждую секунду
             job = context.job_queue.run_repeating(
                 update_timer,
-                interval=5.0,  # Интервал обновления - 1 секунда
-                first=5.0,     # Первое обновление через 1 секунду
+                interval=2.0,  
+                first=2.0,     
                 data=job_data,
                 name=f"timer_{update.effective_chat.id}"
             )
@@ -950,45 +950,92 @@ async def process_stopword_answer(update, context, text):
         await update.effective_message.reply_text("Пожалуйста, введите перефразированное предложение.")
         return
     
-    # Проверяем, содержит ли ответ стоп-слово
-    excludes_stopword = stopword_word.lower() not in rephrased_sentence.lower()
+    # Отображаем индикатор загрузки
+    message = await update.effective_message.reply_text("⏳ Проверяю ваш ответ...")
     
-    # Правильный ответ - не содержит стоп-слово и не равен исходному предложению
-    is_correct = excludes_stopword and rephrased_sentence.lower() != original_sentence.lower()
-    
-    if is_correct:
-        # Увеличиваем счетчик правильных ответов
-        test_data = context.user_data.get("stopwords_test", {})
-        test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
-        context.user_data["stopwords_test"] = test_data
+    try:
+        # Проверяем, удалил ли пользователь стоп-слово с помощью ИИ
+        user_id = update.effective_user.id if update.effective_user else None
+        validation_result = await verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, current_stopword, user_id)
         
-        result_message = (
-            f"✅ Отлично! Вы успешно перефразировали предложение без использования стоп-слова.\n\n"
-            f"Оригинал: {original_sentence}\n"
-            f"Ваш ответ: {rephrased_sentence}\n"
-        )
-    else:
-        if not excludes_stopword:
+        # Получаем результаты проверки
+        preserves_meaning = validation_result.get("preserves_meaning", False)
+        excludes_stopword = validation_result.get("excludes_stopword", False)
+        used_synonym = validation_result.get("used_synonym", False)
+        detected_stopword = validation_result.get("detected_stopword", "")
+        
+        # Удаляем сообщение с индикатором загрузки
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=message.message_id
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при удалении сообщения: {e}")
+        
+        # Формируем сообщение с результатом проверки
+        if preserves_meaning and excludes_stopword:
+            # Правильный ответ - увеличиваем счетчик правильных ответов
+            test_data = context.user_data.get("stopwords_test", {})
+            test_data["correct_answers"] = test_data.get("correct_answers", 0) + 1
+            context.user_data["stopwords_test"] = test_data
+            
             result_message = (
-                f"❌ Ваш ответ все еще содержит стоп-слово '{stopword_word}'.\n\n"
+                f"✅ Отлично! Вы успешно перефразировали предложение без использования стоп-слова.\n\n"
                 f"Оригинал: {original_sentence}\n"
                 f"Ваш ответ: {rephrased_sentence}\n"
             )
         else:
-            result_message = (
-                f"❌ Ваш ответ слишком близок к оригиналу или не сохраняет смысл предложения.\n\n"
-                f"Оригинал: {original_sentence}\n"
-                f"Ваш ответ: {rephrased_sentence}\n"
-            )
-    
-    # Отправляем результат проверки
-    await update.effective_message.reply_text(result_message)
-    
-    # Сбрасываем флаг обработки, но ОСТАВЛЯЕМ флаг ожидания ответа
-    context.user_data["processing_answer"] = False  
-    
-    # Переходим к следующему вопросу
-    await next_question(update, context)
+            # Формируем детальное сообщение о причине неправильного ответа
+            if not preserves_meaning and not excludes_stopword:
+                result_message = (
+                    f"❌ Ваш ответ не сохраняет смысл оригинального предложения и все еще содержит стоп-слово.\n\n"
+                )
+            elif not preserves_meaning:
+                result_message = (
+                    f"❌ Ваш ответ не сохраняет смысл оригинального предложения.\n\n"
+                )
+            elif not excludes_stopword:
+                if detected_stopword:
+                    found_stopword = detected_stopword if detected_stopword != stopword_word else stopword_word
+                    result_message = (
+                        f"❌ Ваш ответ все еще содержит стоп-слово или его синоним: '{found_stopword}'.\n\n"
+                    )
+                else:
+                    result_message = (
+                        f"❌ Ваш ответ все еще содержит стоп-слово '{stopword_word}' или его синоним.\n\n"
+                    )
+            
+            # Добавляем описание стоп-слова для пояснения
+            description = current_stopword.get("description", "")
+            if description:
+                result_message += f"Описание стоп-слова '{stopword_word}': {description}\n\n"
+            
+            # Добавляем рекомендуемую замену
+            replacement = current_stopword.get("replacement", "")
+            if replacement:
+                result_message += f"Рекомендуемая замена: {replacement}\n\n"
+            
+            # Добавляем оригинал и ответ
+            result_message += f"Оригинал: {original_sentence}\n"
+            result_message += f"Ваш ответ: {rephrased_sentence}\n"
+        
+        # Отправляем результат проверки
+        await update.effective_message.reply_text(result_message)
+        
+        # Сбрасываем флаг обработки, но ОСТАВЛЯЕМ флаг ожидания ответа
+        context.user_data["processing_answer"] = False  
+        
+        # Переходим к следующему вопросу
+        await next_question(update, context)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при проверке ответа на стоп-слово: {e}")
+        await update.effective_message.reply_text(
+            "Произошла ошибка при проверке вашего ответа. Пожалуйста, попробуйте еще раз."
+        )
+        # Сбрасываем флаг обработки, но ОСТАВЛЯЕМ флаг ожидания ответа
+        context.user_data["processing_answer"] = False
 
 async def next_question(update, context):
     """Вспомогательная функция для перехода к следующему вопросу"""
