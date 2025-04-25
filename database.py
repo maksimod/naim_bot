@@ -140,10 +140,11 @@ def register_user(user_id, username, first_name, last_name):
     user = cursor.fetchone()
     
     if not user:
-        # Initial unlocked stages - only first two options are unlocked
+        # Initial unlocked stages - after removing primary_file and where_to_start modules,
+        # we now unlock logic_test by default
         unlocked_stages = json.dumps([
             'about_company',
-            'primary_file'
+            'logic_test'
         ])
         
         cursor.execute(
@@ -439,10 +440,10 @@ def create_user(user_id, username):
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Initial unlocked stages - only first two options are unlocked
+    # Initial unlocked stages - после удаления primary_file и where_to_start
     unlocked_stages = json.dumps([
         'about_company',
-        'primary_file'
+        'logic_test'
     ])
     
     cursor.execute(
@@ -705,10 +706,10 @@ def reset_user_progress(user_id):
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Reset unlocked stages to default (only about_company and primary_file)
+    # Reset unlocked stages to default (после удаления primary_file и where_to_start)
     default_stages = json.dumps([
         'about_company',
-        'primary_file'
+        'logic_test'
     ])
     
     # Reset user's unlocked stages and test results

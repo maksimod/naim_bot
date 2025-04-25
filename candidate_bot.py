@@ -44,9 +44,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Создаем нового пользователя, если его нет
         db.create_user(user_id, update.effective_user.username)
         
-        # Разблокируем первые два этапа по умолчанию
+        # Разблокируем первые этапы по умолчанию - после удаления primary_file и where_to_start
         db.unlock_stage(user_id, "about_company")
-        db.unlock_stage(user_id, "primary_file")
+        db.unlock_stage(user_id, "logic_test")
     
     # Читаем и отправляем приветственное сообщение
     from utils.helpers import load_text_content
@@ -88,11 +88,7 @@ async def handle_interview_request(user_id, preferred_day, preferred_time):
                     test_display_name = test_name.replace('_', ' ').title()
                     
                     # Делаем имена тестов более читаемыми
-                    if test_name == 'primary_test':
-                        test_display_name = "Тест по первичному файлу"
-                    elif test_name == 'where_to_start_test':
-                        test_display_name = "Тест 'С чего начать'"
-                    elif test_name == 'logic_test_result':
+                    if test_name == 'logic_test_result':
                         test_display_name = "Тест на логику"
                     elif test_name == 'take_test_result':
                         test_display_name = "Испытание"
@@ -233,12 +229,6 @@ def main():
         lambda update, context: send_main_menu(update, context, edit=True), 
         pattern="^back_to_menu$"
     ))
-    
-    # Обработчики для раздела "С чего начать"
-    application.add_handler(CallbackQueryHandler(handle_where_to_start, pattern="^where_to_start$"))
-    application.add_handler(CallbackQueryHandler(start_stopwords_test, pattern="^start_stopwords_test$"))
-    application.add_handler(CallbackQueryHandler(begin_stopwords_test, pattern="^begin_stopwords_test$"))
-    application.add_handler(CallbackQueryHandler(next_stopword_question, pattern="^next_stopword_question$"))
     
     # Обработчики для тестов
     application.add_handler(CallbackQueryHandler(handle_test_answer, pattern="^answer_"))

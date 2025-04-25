@@ -40,11 +40,9 @@ async def send_main_menu(update, context, message=None, edit=False):
     # Define all menu options with their locked/unlocked status and test results
     menu_options = [
         ("about_company", "🔵 Узнать о компании"),
-        ("primary_file", "🟢 Первичный файл"),
-        ("where_to_start", "🔴 С чего начать"),
         ("logic_test", "🔴 Тест на логику"),
         ("preparation_materials", "🔴 Материалы для подготовки"),
-        ("take_test", "🔴 Пройти испытание"),
+        ("take_test", "🔴 Решить задачу"),
         ("interview_prep", "🔴 Подготовка к собеседованию"),
         ("schedule_interview", "🔴 Пройти собеседование")
     ]
@@ -489,13 +487,9 @@ async def handle_test_completion(update, context):
         logger.info(f"User {user_id} completed test {test_name} with score {score:.1f}%, result: {'PASS' if passed else 'FAIL'}")
     
     # Determine which stages should be unlocked based on the test
-    # Unlock the next stage regardless of test result
+    # После удаления primary_file и where_to_start, порядок разблокировки изменился
     next_stage = None
-    if test_name == "primary_test":
-        next_stage = "where_to_start"
-    elif test_name == "where_to_start_test":
-        next_stage = "logic_test"
-    elif test_name == "logic_test_result":
+    if test_name == "logic_test_result":
         next_stage = "preparation_materials"
     elif test_name == "take_test_result":
         next_stage = "interview_prep"
@@ -750,11 +744,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Проверяем команду для разблокировки всех модулей
     if text == "admin123!":
-        # Список всех модулей, которые нужно разблокировать
+        # Список всех модулей, которые нужно разблокировать (удалены primary_file и where_to_start)
         all_modules = [
             "about_company",
-            "primary_file",
-            "where_to_start",
             "logic_test",
             "preparation_materials",
             "take_test",
@@ -762,10 +754,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "schedule_interview"
         ]
         
-        # Список тестов, которые нужно отметить как пройденные
+        # Список тестов, которые нужно отметить как пройденные (удалены primary_test и where_to_start_test)
         test_results = {
-            "primary_test": True,
-            "where_to_start_test": True,
             "logic_test_result": True, 
             "take_test_result": True,
             "interview_prep_test": True
@@ -791,11 +781,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Получаем список разблокированных модулей
         unlocked_stages = db.get_user_unlocked_stages(user_id)
         
-        # Порядок модулей
+        # Порядок модулей (удалены primary_file и where_to_start)
         module_order = [
             "about_company",
-            "primary_file", 
-            "where_to_start",
             "logic_test",
             "preparation_materials",
             "take_test",
@@ -803,10 +791,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "schedule_interview"
         ]
         
-        # Соответствие модулей и тестов
+        # Соответствие модулей и тестов (удалены primary_file и where_to_start)
         module_test_mapping = {
-            "primary_file": "primary_test",
-            "where_to_start": "where_to_start_test",
             "logic_test": "logic_test_result",
             "take_test": "take_test_result",
             "interview_prep": "interview_prep_test"
@@ -1006,11 +992,12 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last_name = update.effective_user.last_name
     
     # Register user in the database if not already registered
-    db.register_candidate(user_id, username, first_name, last_name)
+    db.register_user(user_id, username, first_name, last_name)
     
-    # Unlock first stages
+    # Unlock first stages - after removing primary_file and where_to_start, 
+    # we need to unlock logic_test right away
     db.unlock_stage(user_id, "about_company")
-    db.unlock_stage(user_id, "primary_file")
+    db.unlock_stage(user_id, "logic_test")
     
     # Welcome message
     await update.message.reply_text(
@@ -1509,26 +1496,22 @@ async def handle_stopwords_test_completion(update, context):
     # Определяем, пройден ли тест (минимум 70%)
     passed = score >= 70
     
-    # Сохраняем результат теста в базе данных
-    user_id = update.effective_user.id
-    db.update_test_result(user_id, "where_to_start_test", passed)
+    # Сохраняем результат теста в базе данных - удалено, так как where_to_start_test больше не используется
     
-    # Разблокируем следующий этап
-    db.unlock_stage(user_id, "logic_test")
+    # Разблокировка модуля логики не требуется, так как он теперь разблокирован изначально
     
     # Формируем сообщение с результатами
     if passed:
         result_message = (
             f"🎉 Поздравляем! Вы успешно прошли тест на знание стоп-слов!\n\n"
             f"Правильных ответов: {correct_answers} из {total_questions} ({score:.1f}%)\n\n"
-            f"Следующий этап разблокирован. Продолжайте свое путешествие по нашей программе найма!"
+            f"Продолжайте свое путешествие по нашей программе найма!"
         )
     else:
         result_message = (
             f"❌ Результат теста: не пройден.\n\n"
             f"Правильных ответов: {correct_answers} из {total_questions} ({score:.1f}%)\n\n"
-            f"Однако, следующий этап все равно разблокирован. Вы можете продолжить, но рекомендуем "
-            f"внимательнее изучить стоп-слова в таблице."
+            f"Вы можете продолжить, но рекомендуем внимательнее изучить стоп-слова в таблице."
         )
     
     # Отправляем сообщение с результатами
@@ -1840,11 +1823,8 @@ async def test_timeout(update, context):
     # Determine which stages should be unlocked based on the test
     # Unlock the next stage regardless of test result
     next_stage = None
-    if test_name == "primary_test":
-        next_stage = "where_to_start"
-    elif test_name == "where_to_start_test":
-        next_stage = "logic_test"
-    elif test_name == "logic_test_result":
+    # После удаления primary_file и where_to_start, прогрессия меняется
+    if test_name == "logic_test_result":
         next_stage = "preparation_materials"
     elif test_name == "take_test_result":
         next_stage = "interview_prep"

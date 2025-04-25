@@ -88,11 +88,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for test_type, data in metrics['test_stats'].items():
                 # Make test name more readable
                 test_name = test_type.replace('_', ' ').title()
-                if test_type == 'primary_test':
-                    test_name = "Тест по первичному файлу"
-                elif test_type == 'stopwords_test':
-                    test_name = "Тест С чего начать"
-                elif test_type == 'logic_test':
+                if test_type == 'logic_test':
                     test_name = "Тест на логику"
                 elif test_type == 'practice_test':
                     test_name = "Испытание"
@@ -211,11 +207,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         test_display_name = test_name.replace('_', ' ').title()
                         
                         # Делаем имена тестов более читаемыми
-                        if test_name == 'primary_test':
-                            test_display_name = "Тест по первичному файлу"
-                        elif test_name == 'where_to_start_test':
-                            test_display_name = "Тест С чего начать"
-                        elif test_name == 'logic_test_result':
+                        if test_name == 'logic_test_result':
                             test_display_name = "Тест на логику"
                         elif test_name == 'take_test_result':
                             test_display_name = "Испытание"
@@ -289,11 +281,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         test_display_name = test_name.replace('_', ' ').title()
                         
                         # Делаем имена тестов более читаемыми
-                        if test_name == 'primary_test':
-                            test_display_name = "Тест по первичному файлу"
-                        elif test_name == 'where_to_start_test':
-                            test_display_name = "Тест С чего начать"
-                        elif test_name == 'logic_test_result':
+                        if test_name == 'logic_test_result':
                             test_display_name = "Тест на логику"
                         elif test_name == 'take_test_result':
                             test_display_name = "Испытание"
