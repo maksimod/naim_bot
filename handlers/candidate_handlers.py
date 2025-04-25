@@ -41,7 +41,7 @@ async def send_main_menu(update, context, message=None, edit=False):
     # Define all menu options with their locked/unlocked status and test results
     menu_options = [
         ("about_company", "🔵 Узнать о компании"),
-        ("primary_file", "🟢 Первичный файл"),
+        ("primary_file", "🟢 С чего начать?"),
         ("where_to_start", "🔴 Стоп-слова"),
         ("logic_test", "🔴 Тест на логику"),
         ("preparation_materials", "🔴 Материалы для подготовки"),
