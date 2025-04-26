@@ -413,33 +413,42 @@ async def verify_stopword_rephrasing_ai(original_sentence, rephrased_sentence, s
         }
 
 async def verify_poem_task(solution_text, user_id=None):
-    """Verify completion of the poem task using ChatGPT"""
+    """
+    Проверяет решение поэтического задания с помощью ИИ
+    
+    Args:
+        solution_text: Текст решения
+        user_id: ID пользователя для записи использования AI
+        
+    Returns:
+        Словарь с результатами проверки (is_valid, feedback)
+    """
     api_url = os.getenv("CHATGPT_API_KEY")
+    
+    # Инструкция для проверки стихотворения
+    prompt = f"""Проверьте, соответствует ли предоставленное стихотворение следующим требованиям:
+
+1. Содержит аллитерацию на звук "С" в каждой строке.
+2. Включает упоминание двух противоположных стихий (например, огонь и вода).
+3. Имеет скрытый акростих из первых букв строк, образующих слово "ИСКРА".
+
+Стихотворение:
+{solution_text}
+
+Ответьте в формате JSON с полями:
+- "is_valid": true/false - соответствует ли стихотворение всем требованиям
+- "feedback": string - подробный анализ с объяснением, какие требования выполнены, а какие нет
+
+Верните только валидный JSON без дополнительного текста."""
     
     messages = [
         {
             "role": "system",
-            "content": "You are a poetry expert evaluating a poem written by a job candidate. Provide a detailed assessment."
+            "content": "Вы - эксперт по анализу поэзии и проверке соответствия стихотворений заданным критериям."
         },
         {
             "role": "user",
-            "content": f"""Please evaluate this poem written by a job candidate:
-
-{solution_text}
-
-Evaluate on these criteria:
-1. It must be at least 4 lines
-2. It should have some rhythm or rhyme
-3. It should be creative and demonstrate effort
-4. It should be about technology, AI, or the workplace
-
-Respond with a JSON object like this:
-{{
-  "is_valid": true/false,
-  "feedback": "Your assessment"
-}}
-
-Only include the JSON object in your response."""
+            "content": prompt
         }
     ]
     
@@ -448,20 +457,20 @@ Only include the JSON object in your response."""
             messages=messages,
             model="gpt-3.5-turbo-0125",
             temperature=0.3,
-            max_tokens=500,
+            max_tokens=800,
             user_id=user_id
         )
         
         if not response:
-            # Fallback if API call fails
+            # Fallback if API failed
             return {
-                "is_valid": True,  # Give benefit of the doubt
-                "feedback": "Automatic verification unavailable. We've accepted your poem. Well done!"
+                "is_valid": False,
+                "feedback": "Произошла ошибка при проверке стихотворения. Пожалуйста, попробуйте снова."
             }
         
-        # Try to extract JSON from response
+        # Extract JSON from response
         try:
-            # Look for a JSON object in the response
+            # Find JSON in response
             json_match = re.search(r'(\{.*\})', response, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
@@ -472,18 +481,97 @@ Only include the JSON object in your response."""
                 result = json.loads(response)
                 return result
         except json.JSONDecodeError:
-            logger.error(f"Error calling ChatGPT API: {response.status_code}")
-            # Fallback JSON
+            logger.error(f"Failed to parse JSON from API response: {response}")
             return {
-                "is_valid": True,  # Give benefit of the doubt
-                "feedback": "We had trouble analyzing your poem, but we've accepted it. Thank you for your submission!"
+                "is_valid": False,
+                "feedback": "Произошла ошибка при анализе стихотворения. Пожалуйста, попробуйте снова."
             }
     except Exception as e:
-        logger.error(f"Error verifying poem: {e}")
-        # Fallback result
+        logger.error(f"Error verifying poem task: {e}")
         return {
-            "is_valid": True,  # Give benefit of the doubt
-            "feedback": "We're experiencing technical issues with our evaluation system, but we've decided to accept your poem. Thank you for your effort!"
+            "is_valid": False,
+            "feedback": f"Произошла ошибка: {str(e)}. Пожалуйста, попробуйте снова."
+        }
+
+async def verify_test_solution_ai(solution_text, user_id=None):
+    """
+    Проверяет решение тестовой задачи с помощью ИИ
+    
+    Args:
+        solution_text: Текст решения (диалог с ИИ)
+        user_id: ID пользователя для записи использования AI
+        
+    Returns:
+        Словарь с результатами проверки (is_valid, feedback)
+    """
+    api_url = os.getenv("CHATGPT_API_KEY")
+    
+    # Инструкция для проверки решения
+    prompt = f"""Проверьте, соответствует ли предоставленное решение требованиям:
+
+1. Текст должен быть диалогом человека с ИИ (например, ChatGPT, Claude).
+2. Диалог должен содержать решение для задачи создания стихотворения с акростихом "ИСКРА".
+3. Должно быть видно, что пользователь сформулировал запрос к ИИ, а затем получил и, возможно, уточнил ответ.
+
+Текст решения:
+{solution_text}
+
+Ответьте в формате JSON с полями:
+- "is_valid": true/false - соответствует ли решение требованиям
+- "feedback": string - объяснение оценки
+
+Верните только валидный JSON без дополнительного текста."""
+    
+    messages = [
+        {
+            "role": "system",
+            "content": "Вы - эксперт по анализу диалогов и проверке решений задач, полученных через взаимодействие с ИИ."
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+    
+    try:
+        response = await call_openai_api(
+            messages=messages,
+            model="gpt-3.5-turbo-0125",
+            temperature=0.3,
+            max_tokens=800,
+            user_id=user_id
+        )
+        
+        if not response:
+            # Fallback if API failed
+            return {
+                "is_valid": False,
+                "feedback": "Произошла ошибка при проверке решения. Пожалуйста, попробуйте снова."
+            }
+        
+        # Extract JSON from response
+        try:
+            # Find JSON in response
+            json_match = re.search(r'(\{.*\})', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+                result = json.loads(json_str)
+                return result
+            else:
+                # If no JSON found, try to parse the whole response
+                result = json.loads(response)
+                return result
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON from API response: {response}")
+            return {
+                "is_valid": False,
+                "feedback": "Произошла ошибка при анализе решения. Пожалуйста, попробуйте снова."
+            }
+    except Exception as e:
+        logger.error(f"Error verifying test solution: {e}")
+        return {
+            "is_valid": False,
+            "feedback": f"Произошла ошибка: {str(e)}. Пожалуйста, попробуйте снова."
         }
 
 # Load API key on module import

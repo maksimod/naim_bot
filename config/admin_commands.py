@@ -5,22 +5,22 @@ Commands can be easily renamed by changing the first element in each list.
 """
 
 # Admin mode activation commands - enable admin privileges
-ADMIN_COMMANDS = ['admin123!', 'admin_mode']
+ADMIN_COMMANDS = ['admin', 'admin_mode']
 
 # Reset progress commands - reset all user progress
-RESET_COMMANDS = ['!reload2!', 'reset_progress']
+RESET_COMMANDS = ['reload', 'reset_progress']
 
 # Skip module commands - mark current module as completed and unlock next module
-SKIP_COMMANDS = ['!skip2!', 'skip_module']
+SKIP_COMMANDS = ['skip', 'skip_module']
 
 # Success completion commands - mark current module as successfully completed with a checkmark
-SUCCESS_COMMANDS = ['!good!', 'success_completion']
+SUCCESS_COMMANDS = ['good', 'success_completion']
 
 # Failure completion commands - mark current module as failed with an X mark
-FAILURE_COMMANDS = ['!bad!', 'failure_completion']
+FAILURE_COMMANDS = ['bad', 'failure_completion']
 
 # Previous module commands - lock the current module and reset the previous module's status
-PREVIOUS_COMMANDS = ['!prev!', 'previous_module']
+PREVIOUS_COMMANDS = ['prev', 'previous_module']
 
 # Module order defines the progression of modules
 MODULE_ORDER = [

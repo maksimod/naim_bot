@@ -1113,10 +1113,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handler for contact_leader button
     elif query.data == "contact_leader":
         contact_message = (
-            "👨‍💼 Контакт руководителя:\n\n"
             "Юрий Костенко\n"
             "Telegram: @ITNS2023\n\n"
-            "Вы можете обратиться к нему по любым вопросам, связанным с процессом найма."
         )
         
         keyboard = [

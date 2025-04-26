@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import CandidateStates
 from utils.helpers import load_text_content, load_test_questions, get_stopwords_data
-from utils.chatgpt_helpers import generate_ai_stopword_sentence, verify_stopword_rephrasing_ai, verify_poem_task
+from utils.chatgpt_helpers import generate_ai_stopword_sentence, verify_stopword_rephrasing_ai, verify_poem_task, verify_test_solution_ai
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ async def send_main_menu(update, context, message=None, edit=False):
         ("take_test", "🔴 Решить задачу"),
         ("interview_prep", "🔴 Подготовка к собеседованию"),
         ("schedule_interview", "🔴 Пройти собеседование"),
-        ("contact_leader", "🔵 Связаться с руководителем")
+        ("contact_leader", "👨‍💼 Связаться с руководителем")
     ]
     
     # Create keyboard with unlocked buttons and test status indicators
@@ -2091,6 +2091,8 @@ async def process_poem_task(update, context, text):
 
 async def process_test_solution(update, context, text):
     """Обрабатывает решение тестовой задачи, отправленное пользователем"""
+    from utils.chatgpt_helpers import verify_test_solution_ai
+    
     user_id = update.effective_user.id
     
     # Проверяем длину текста
@@ -2104,27 +2106,10 @@ async def process_test_solution(update, context, text):
     processing_message = await update.message.reply_text("⏳ Проверяем ваше решение...")
     
     try:
-        # Здесь должен быть вызов ИИ для анализа решения
-        # В этой версии просто устанавливаем случайный результат для демонстрации
-        
-        # Проверка текста на наличие ключевых фраз
-        is_valid = False
-        feedback = "Решение не соответствует требованиям задачи. Убедитесь, что вы приложили полный диалог с ИИ (Claude, ChatGPT и т.д.)."
-        
-        # Расширенная проверка на наличие ключевых слов/фраз, характерных для диалога с ИИ
-        key_phrases = [
-            "claude", "ai", "искусственный интеллект", "нейросеть", "chatgpt", "gpt", 
-            "llm", "large language model", "языковая модель", "assistant:", "assistant :", 
-            "user:", "user :", "человек:", "человек :", "бот:", "бот :", "ии:", "ии :",
-            "нейронная сеть", "dialogue", "диалог с", "conversation", "беседа с"
-        ]
-        
-        # Проверяем наличие хотя бы двух ключевых фраз для большей уверенности
-        matched_phrases = [phrase for phrase in key_phrases if phrase in text.lower()]
-        
-        if len(matched_phrases) >= 2 or len(text) > 1000:  # Если есть минимум 2 ключевые фразы или текст достаточно длинный
-            is_valid = True
-            feedback = "Хорошая работа! Ваше решение соответствует требованиям задачи."
+        # Проверяем решение с помощью нейросети через API
+        result = await verify_test_solution_ai(text, user_id=user_id)
+        is_valid = result["is_valid"]
+        feedback = result["feedback"]
         
         # Удаляем сообщение о проверке
         try:
