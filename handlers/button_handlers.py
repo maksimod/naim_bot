@@ -640,12 +640,22 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
             if "take_test_result" in user_test_results:
-                await query.edit_message_text(
-                    "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-                    ])
-                )
+                try:
+                    await query.edit_message_text(
+                        "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                        ])
+                    )
+                except Exception as e:
+                    logger.error(f"Error editing message: {e}")
+                    # If editing fails, send as a new message
+                    await update.effective_chat.send_message(
+                        "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                        ])
+                    )
                 return CandidateStates.MAIN_MENU
                 
             # Load the task description
@@ -697,12 +707,22 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Если тест уже был пройден (успешно или неуспешно), не позволяем пересдавать
         if "take_test_result" in user_test_results:
-            await query.edit_message_text(
-                "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
-                ])
-            )
+            try:
+                await query.edit_message_text(
+                    "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                    ])
+                )
+            except Exception as e:
+                logger.error(f"Error editing message: {e}")
+                # If editing fails, send as a new message
+                await update.effective_chat.send_message(
+                    "Вы уже проходили этот тест. Повторное прохождение тестов не разрешено.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+                    ])
+                )
             return CandidateStates.MAIN_MENU
             
         # Text to send
@@ -712,10 +732,18 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⬅️ Отмена и возврат в меню", callback_data="back_to_menu")]
         ])
         
-        await query.edit_message_text(
-            text=message_text,
-            reply_markup=reply_markup
-        )
+        try:
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error editing message for solution submission: {e}")
+            # If editing fails, send as a new message
+            await update.effective_chat.send_message(
+                text=message_text,
+                reply_markup=reply_markup
+            )
         
         # Set flag to await text solution
         context.user_data["awaiting_solution"] = False  # Reset old flag
