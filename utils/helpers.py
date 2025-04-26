@@ -37,12 +37,16 @@ def load_test_questions(filename):
                     # Handle different format of correct answer field
                     if "correct_answer" in q:
                         question_data["correct_answer"] = q["correct_answer"]
+                        logger.info(f"DEBUG: Found correct_answer: {q['correct_answer']} for question: {q['question'][:30]}...")
                     elif "correct_option" in q:
                         question_data["correct_option"] = q["correct_option"]
+                        logger.info(f"DEBUG: Found correct_option: {q['correct_option']} for question: {q['question'][:30]}...")
                     elif "correct_index" in q:
                         question_data["correct_answer"] = q["correct_index"]
+                        logger.info(f"DEBUG: Found correct_index: {q['correct_index']} for question: {q['question'][:30]}...")
                     else:
                         question_data["correct_answer"] = 0
+                        logger.info(f"DEBUG: No correct answer field found, defaulting to 0 for question: {q['question'][:30]}...")
                         
                     questions.append(question_data)
                 
@@ -65,12 +69,16 @@ def load_test_questions(filename):
                     # Handle different format of correct answer field
                     if "correct_answer" in q:
                         question_data["correct_answer"] = q["correct_answer"]
+                        logger.info(f"DEBUG: Found correct_answer: {q['correct_answer']} for question: {q['question'][:30]}...")
                     elif "correct_option" in q:
                         question_data["correct_option"] = q["correct_option"]
+                        logger.info(f"DEBUG: Found correct_option: {q['correct_option']} for question: {q['question'][:30]}...")
                     elif "correct_index" in q:
                         question_data["correct_answer"] = q["correct_index"]
+                        logger.info(f"DEBUG: Found correct_index: {q['correct_index']} for question: {q['question'][:30]}...")
                     else:
                         question_data["correct_answer"] = 0
+                        logger.info(f"DEBUG: No correct answer field found, defaulting to 0 for question: {q['question'][:30]}...")
                         
                     processed_questions.append(question_data)
                 

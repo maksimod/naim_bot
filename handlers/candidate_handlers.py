@@ -466,12 +466,20 @@ async def handle_test_completion(update, context):
     total_questions = len(questions)
     score = (correct_answers / total_questions) * 100 if total_questions > 0 else 0
     
+    # Debug information about test completion
+    logger.info(f"DEBUG: Test completion for test: {test_name}")
+    logger.info(f"DEBUG: Total questions: {total_questions}")
+    logger.info(f"DEBUG: Correct answers: {correct_answers}")
+    logger.info(f"DEBUG: Score: {score}%")
+    
     # Determine if user passed (need 70% or higher)
     passed = score >= 70
     
     # Для теста на логику особое условие - минимум 22 из 30 правильных ответов
     if test_name == "logic_test_result":
         passed = correct_answers >= 22
+    
+    logger.info(f"DEBUG: Test passed: {passed}")
     
     # In regular mode, save result to database
     # In admin mode, save to context.user_data instead
@@ -625,22 +633,41 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             # Get current question details
             question = questions[current_question]
             
-            # Handle different test formats (some use 'answer' and some use 'correct_answer')
-            correct_answer = question.get('answer', question.get('correct_answer', -1))
+            # Handle different test formats and determine the correct answer index (0-based)
+            correct_answer_index = -1  # Default to invalid
             
-            # Try to convert correct_answer to an integer if it's provided as a string (e.g., "1", "2", etc.)
-            if isinstance(correct_answer, str):
-                if correct_answer.isdigit():
-                    # Convert 1-based index to 0-based
-                    correct_answer = int(correct_answer) - 1
+            # Option 1: Direct correct_answer field (usually 0-based index)
+            if 'correct_answer' in question:
+                correct_answer_index = question['correct_answer']
+                # Convert to int if it's a string number
+                if isinstance(correct_answer_index, str) and correct_answer_index.isdigit():
+                    correct_answer_index = int(correct_answer_index)
+                    
+            # Option 2: correct_option field (1-based index, need to convert to 0-based)
+            elif 'correct_option' in question:
+                # For the interview_prep_test.json, correct_option is the actual position (1=first)
+                # NOT converting to 0-based index as it's already the right index for button comparison
+                correct_answer_index = question['correct_option']
+            
+            # Option 3: correct_index field
+            elif 'correct_index' in question:
+                correct_answer_index = question['correct_index']
+            
+            # Validate answer_index is an integer
+            if isinstance(correct_answer_index, str):
+                # If correct_answer is a string but not a digit, try to find it in options
+                options = question.get('options', question.get('answers', []))
+                if correct_answer_index in options:
+                    correct_answer_index = options.index(correct_answer_index)
                 else:
-                    # Если correct_answer - не число, то ищем его индекс в массиве options/answers
-                    options = question.get('options', question.get('answers', []))
-                    if correct_answer in options:
-                        correct_answer = options.index(correct_answer)
-                    else:
-                        logger.error(f"Invalid correct_answer format: {correct_answer}")
-                        correct_answer = -1
+                    logger.error(f"Invalid correct_answer format: {correct_answer_index}")
+                    correct_answer_index = -1
+            
+            # Add extra debug logging 
+            logger.info(f"DEBUG: Question: {question['question']}")
+            logger.info(f"DEBUG: Correct option field value: {question.get('correct_option', 'N/A')}")
+            logger.info(f"DEBUG: Calculated correct_answer_index: {correct_answer_index}")
+            logger.info(f"DEBUG: User selected answer_index: {answer_index}")
             
             # Check if the answer is correct
             if admin_mode:
@@ -649,18 +676,17 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
                 logger.info(f"Admin mode: Automatically marking answer as correct. Total correct answers: {context.user_data.get('correct_answers', 0)}")
             else:
-                # Проверяем, совпадает ли выбранный ответ с правильным
-                # В файле теста индексы 0-based, а в кнопках 1-based, поэтому сравниваем напрямую
-                is_correct = answer_index == correct_answer
+                # Check if selected answer matches the correct answer
+                is_correct = answer_index == correct_answer_index
                 
                 if is_correct:
                     # Increment correct answers count
                     context.user_data["correct_answers"] = context.user_data.get("correct_answers", 0) + 1
                     logger.info(f"Answer debug - Correct! Total correct answers: {context.user_data['correct_answers']}")
-                    logger.info(f"Answer debug - User selected option {answer_index} which matches correct answer {correct_answer}")
+                    logger.info(f"Answer debug - User selected option {answer_index} which matches correct answer {correct_answer_index}")
                 else:
-                    logger.info(f"Answer debug - Incorrect! Expected {correct_answer}, got {answer_index}")
-                    logger.info(f"Answer debug - User selected option {answer_index} but correct answer was {correct_answer}")
+                    logger.info(f"Answer debug - Incorrect! Expected {correct_answer_index}, got {answer_index}")
+                    logger.info(f"Answer debug - User selected option {answer_index} but correct answer was {correct_answer_index}")
                 
                 # Останавливаем таймер перед обновлением UI, чтобы избежать гонки
                 if "test_timer_job" in context.user_data:
