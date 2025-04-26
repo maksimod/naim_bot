@@ -7,6 +7,7 @@ import database as db
 from config import CandidateStates
 from utils.helpers import load_text_content
 from handlers.candidate_handlers import send_main_menu
+from config.admin_commands import ADMIN_COMMANDS
 
 # Добавляем корневую директорию проекта в путь импорта
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -61,10 +62,9 @@ async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if we're expecting a specific type of input
     state = context.user_data.get('state', CandidateStates.MAIN_MENU)
     
-    # Secret admin mode activation check - проверяем различные варианты секретного кода
+    # Secret admin mode activation check
     message_text = update.message.text
-    secret_codes = ["admin123!", "admin123"]
-    if message_text in secret_codes or message_text.strip() in secret_codes:
+    if message_text in ADMIN_COMMANDS:
         context.user_data["admin_mode"] = True
         await update.message.reply_text(
             "🔓 Режим администратора активирован. Все пункты меню теперь доступны.",

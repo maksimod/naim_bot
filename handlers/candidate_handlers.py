@@ -235,6 +235,8 @@ async def send_main_menu(update, context, message=None, edit=False):
             test_name = None
             if stage_id == "take_test":
                 test_name = "take_test_result"
+            elif stage_id == "interview_prep":
+                test_name = "interview_prep_test"
             
             # Check if there's a test result for this stage
             if test_name and test_name in display_test_results:
@@ -489,6 +491,8 @@ async def handle_test_completion(update, context):
         next_stage = "preparation_materials"
     elif test_name == "take_test_result":
         next_stage = "interview_prep"
+    elif test_name == "interview_prep_test":
+        next_stage = "schedule_interview"
     
     # Unlock the next stage in the regular mode only
     if next_stage and not admin_mode:
@@ -720,11 +724,15 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text messages."""
+    from config.admin_commands import (ADMIN_COMMANDS, RESET_COMMANDS, SKIP_COMMANDS, 
+                                      SUCCESS_COMMANDS, FAILURE_COMMANDS, PREVIOUS_COMMANDS,
+                                      MODULE_ORDER, MODULE_TEST_MAPPING)
+    
     user_id = update.effective_user.id
     text = update.message.text
     
     # Проверяем секретную команду для сброса прогресса
-    if text == "!reload2!":
+    if text in RESET_COMMANDS:
         # Сбрасываем прогресс пользователя в базе данных
         db.reset_user_progress(user_id)
         
@@ -738,19 +746,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Отправляем главное меню
         return await send_main_menu(update, context)
     
-    # Проверяем команду для разблокировки всех модулей
-    if text == "admin123!":
-        # Список всех модулей, которые нужно разблокировать (удалены primary_file и where_to_start)
-        all_modules = [
-            "about_company",
-            "logic_test",
-            "preparation_materials",
-            "take_test",
-            "interview_prep",
-            "schedule_interview"
-        ]
+    # Проверяем команду для разблокировки всех модулей и активации режима администратора
+    if text in ADMIN_COMMANDS:
+        # Активируем режим администратора
+        context.user_data["admin_mode"] = True
         
-        # Список тестов, которые нужно отметить как пройденные (удалены primary_test и where_to_start_test)
+        # Список всех модулей, которые нужно разблокировать
+        all_modules = MODULE_ORDER
+        
+        # Список тестов, которые нужно отметить как пройденные
         test_results = {
             "logic_test_result": True, 
             "take_test_result": True,
@@ -773,41 +777,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await send_main_menu(update, context)
     
     # Проверяем команду для пропуска текущего модуля
-    if text == "!skip2!":
+    if text in SKIP_COMMANDS:
         # Получаем список разблокированных модулей
         unlocked_stages = db.get_user_unlocked_stages(user_id)
-        
-        # Порядок модулей (удалены primary_file и where_to_start)
-        module_order = [
-            "about_company",
-            "logic_test",
-            "preparation_materials",
-            "take_test",
-            "interview_prep",
-            "schedule_interview"
-        ]
-        
-        # Соответствие модулей и тестов (удалены primary_file и where_to_start)
-        module_test_mapping = {
-            "logic_test": "logic_test_result",
-            "take_test": "take_test_result",
-            "interview_prep": "interview_prep_test"
-        }
         
         # Найдем последний разблокированный модуль согласно порядку
         last_unlocked = None
         next_module_to_unlock = None
         
         # Пройдем по списку в обратном порядке для нахождения последнего разблокированного модуля
-        for i in range(len(module_order) - 1, -1, -1):
-            if module_order[i] in unlocked_stages:
+        for i in range(len(MODULE_ORDER) - 1, -1, -1):
+            if MODULE_ORDER[i] in unlocked_stages:
                 # Нашли последний разблокированный модуль
-                last_unlocked = module_order[i]
+                last_unlocked = MODULE_ORDER[i]
                 
                 # Находим ещё не разблокированный следующий модуль
-                for j in range(i + 1, len(module_order)):
-                    if module_order[j] not in unlocked_stages:
-                        next_module_to_unlock = module_order[j]
+                for j in range(i + 1, len(MODULE_ORDER)):
+                    if MODULE_ORDER[j] not in unlocked_stages:
+                        next_module_to_unlock = MODULE_ORDER[j]
                         break
                 break
         
@@ -825,8 +812,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await send_main_menu(update, context)
         
         # Если для текущего модуля есть тест, отмечаем его как пройденный
-        if last_unlocked in module_test_mapping:
-            test_name = module_test_mapping[last_unlocked]
+        if last_unlocked in MODULE_TEST_MAPPING:
+            test_name = MODULE_TEST_MAPPING[last_unlocked]
             db.update_test_result(user_id, test_name, True)
         
         # Разблокируем следующий модуль
@@ -835,6 +822,157 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ Модуль '{last_unlocked}' отмечен как успешно пройденный.\n🔓 Модуль '{next_module_to_unlock}' разблокирован."
         )
+        
+        # Отправляем главное меню
+        return await send_main_menu(update, context)
+    
+    # Проверяем команду для успешного завершения текущего модуля
+    if text in SUCCESS_COMMANDS:
+        # Получаем список разблокированных модулей
+        unlocked_stages = db.get_user_unlocked_stages(user_id)
+        
+        # Найдем последний разблокированный модуль согласно порядку
+        last_unlocked = None
+        next_module_to_unlock = None
+        
+        # Пройдем по списку в обратном порядке для нахождения последнего разблокированного модуля
+        for i in range(len(MODULE_ORDER) - 1, -1, -1):
+            if MODULE_ORDER[i] in unlocked_stages:
+                # Нашли последний разблокированный модуль
+                last_unlocked = MODULE_ORDER[i]
+                
+                # Находим ещё не разблокированный следующий модуль
+                for j in range(i + 1, len(MODULE_ORDER)):
+                    if MODULE_ORDER[j] not in unlocked_stages:
+                        next_module_to_unlock = MODULE_ORDER[j]
+                        break
+                break
+        
+        if not last_unlocked:
+            await update.message.reply_text(
+                "❌ Не найдены разблокированные модули. Сначала разблокируйте хотя бы один модуль."
+            )
+            return await send_main_menu(update, context)
+        
+        # Если для текущего модуля есть тест, отмечаем его как успешно пройденный
+        if last_unlocked in MODULE_TEST_MAPPING:
+            test_name = MODULE_TEST_MAPPING[last_unlocked]
+            db.update_test_result(user_id, test_name, True)
+        
+            # Разблокируем следующий модуль, если он есть
+            if next_module_to_unlock:
+                db.unlock_stage(user_id, next_module_to_unlock)
+                await update.message.reply_text(
+                    f"✅ Модуль '{last_unlocked}' отмечен как успешно пройденный.\n🔓 Модуль '{next_module_to_unlock}' разблокирован."
+                )
+            else:
+                await update.message.reply_text(
+                    f"✅ Модуль '{last_unlocked}' отмечен как успешно пройденный.\nВсе модули уже разблокированы."
+                )
+        else:
+            await update.message.reply_text(
+                f"⚠️ Модуль '{last_unlocked}' не имеет связанного теста для отметки о выполнении."
+            )
+        
+        # Отправляем главное меню
+        return await send_main_menu(update, context)
+    
+    # Проверяем команду для неуспешного завершения текущего модуля
+    if text in FAILURE_COMMANDS:
+        # Получаем список разблокированных модулей
+        unlocked_stages = db.get_user_unlocked_stages(user_id)
+        
+        # Найдем последний разблокированный модуль согласно порядку
+        last_unlocked = None
+        next_module_to_unlock = None
+        
+        # Пройдем по списку в обратном порядке для нахождения последнего разблокированного модуля
+        for i in range(len(MODULE_ORDER) - 1, -1, -1):
+            if MODULE_ORDER[i] in unlocked_stages:
+                # Нашли последний разблокированный модуль
+                last_unlocked = MODULE_ORDER[i]
+                
+                # Находим ещё не разблокированный следующий модуль
+                for j in range(i + 1, len(MODULE_ORDER)):
+                    if MODULE_ORDER[j] not in unlocked_stages:
+                        next_module_to_unlock = MODULE_ORDER[j]
+                        break
+                break
+        
+        if not last_unlocked:
+            await update.message.reply_text(
+                "❌ Не найдены разблокированные модули. Сначала разблокируйте хотя бы один модуль."
+            )
+            return await send_main_menu(update, context)
+        
+        # Если для текущего модуля есть тест, отмечаем его как неуспешно пройденный
+        if last_unlocked in MODULE_TEST_MAPPING:
+            test_name = MODULE_TEST_MAPPING[last_unlocked]
+            db.update_test_result(user_id, test_name, False)
+        
+            # Разблокируем следующий модуль, если он есть
+            if next_module_to_unlock:
+                db.unlock_stage(user_id, next_module_to_unlock)
+                await update.message.reply_text(
+                    f"❌ Модуль '{last_unlocked}' отмечен как неуспешно пройденный.\n🔓 Модуль '{next_module_to_unlock}' разблокирован."
+                )
+            else:
+                await update.message.reply_text(
+                    f"❌ Модуль '{last_unlocked}' отмечен как неуспешно пройденный.\nВсе модули уже разблокированы."
+                )
+        else:
+            await update.message.reply_text(
+                f"⚠️ Модуль '{last_unlocked}' не имеет связанного теста для отметки о выполнении."
+            )
+        
+        # Отправляем главное меню
+        return await send_main_menu(update, context)
+    
+    # Проверяем команду для возврата к предыдущему модулю
+    if text in PREVIOUS_COMMANDS:
+        # Получаем список разблокированных модулей
+        unlocked_stages = db.get_user_unlocked_stages(user_id)
+        
+        # Найдем последний и предпоследний разблокированные модули согласно порядку
+        last_unlocked = None
+        prev_unlocked = None
+        last_unlocked_index = -1
+        
+        # Находим индекс последнего разблокированного модуля
+        for i in range(len(MODULE_ORDER) - 1, -1, -1):
+            if MODULE_ORDER[i] in unlocked_stages:
+                last_unlocked = MODULE_ORDER[i]
+                last_unlocked_index = i
+                break
+        
+        # Если найден последний модуль, ищем предыдущий
+        if last_unlocked_index > 0:
+            for i in range(last_unlocked_index - 1, -1, -1):
+                if MODULE_ORDER[i] in unlocked_stages:
+                    prev_unlocked = MODULE_ORDER[i]
+                    break
+        
+        if not last_unlocked or not prev_unlocked:
+            await update.message.reply_text(
+                "❌ Не найдены предыдущие модули. Требуется минимум два разблокированных модуля для выполнения этой команды."
+            )
+            return await send_main_menu(update, context)
+        
+        # Блокируем последний модуль
+        db.lock_stage(user_id, last_unlocked)
+        
+        # Если для предыдущего модуля есть тест, сбрасываем его результат
+        if prev_unlocked in MODULE_TEST_MAPPING:
+            test_name = MODULE_TEST_MAPPING[prev_unlocked]
+            db.remove_test_result(user_id, test_name)
+            
+            await update.message.reply_text(
+                f"🔒 Модуль '{last_unlocked}' заблокирован.\n🔄 Результат теста для модуля '{prev_unlocked}' сброшен."
+            )
+        else:
+            await update.message.reply_text(
+                f"🔒 Модуль '{last_unlocked}' заблокирован.\n⚠️ Модуль '{prev_unlocked}' не имеет связанного теста для сброса."
+            )
         
         # Отправляем главное меню
         return await send_main_menu(update, context)

@@ -199,17 +199,85 @@ def unlock_stage(user_id, stage_name):
     cursor.execute(f'SELECT unlocked_stages FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
     
-    if result and result[0]:
-        unlocked_stages = json.loads(result[0])
-        if stage_name not in unlocked_stages:
-            unlocked_stages.append(stage_name)
-            
-            cursor.execute(
-                f'UPDATE {BOT_PREFIX}users SET unlocked_stages = %s WHERE user_id = %s',
-                (json.dumps(unlocked_stages), user_id)
-            )
-            conn.commit()
+    if result:
+        try:
+            unlocked_stages = json.loads(result[0]) if result[0] else []
+        except json.JSONDecodeError:
+            unlocked_stages = []
+    else:
+        unlocked_stages = []
     
+    # Add the new stage if it's not already unlocked
+    if stage_name not in unlocked_stages:
+        unlocked_stages.append(stage_name)
+    
+    # Update the database
+    cursor.execute(
+        f'UPDATE {BOT_PREFIX}users SET unlocked_stages = %s WHERE user_id = %s',
+        (json.dumps(unlocked_stages), user_id)
+    )
+    
+    conn.commit()
+    conn.close()
+
+def lock_stage(user_id, stage_name):
+    """Lock (remove) a stage for the user"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get current unlocked stages
+    cursor.execute(f'SELECT unlocked_stages FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
+    result = cursor.fetchone()
+    
+    if result:
+        try:
+            unlocked_stages = json.loads(result[0]) if result[0] else []
+        except json.JSONDecodeError:
+            unlocked_stages = []
+    else:
+        unlocked_stages = []
+    
+    # Remove the stage if it's in the unlocked list
+    if stage_name in unlocked_stages:
+        unlocked_stages.remove(stage_name)
+    
+    # Update the database
+    cursor.execute(
+        f'UPDATE {BOT_PREFIX}users SET unlocked_stages = %s WHERE user_id = %s',
+        (json.dumps(unlocked_stages), user_id)
+    )
+    
+    conn.commit()
+    conn.close()
+
+def remove_test_result(user_id, test_name):
+    """Remove a test result for a user"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get current test results
+    cursor.execute(f'SELECT current_test_results FROM {BOT_PREFIX}users WHERE user_id = %s', (user_id,))
+    result = cursor.fetchone()
+    
+    if result:
+        try:
+            test_results = json.loads(result[0]) if result[0] else {}
+        except json.JSONDecodeError:
+            test_results = {}
+    else:
+        test_results = {}
+    
+    # Remove the test result if it exists
+    if test_name in test_results:
+        del test_results[test_name]
+    
+    # Save back to database
+    cursor.execute(
+        f'UPDATE {BOT_PREFIX}users SET current_test_results = %s WHERE user_id = %s',
+        (json.dumps(test_results), user_id)
+    )
+    
+    conn.commit()
     conn.close()
 
 def save_test_submission(user_id, test_type, submission_data):
