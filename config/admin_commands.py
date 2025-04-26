@@ -29,7 +29,8 @@ MODULE_ORDER = [
     "preparation_materials",
     "take_test",
     "interview_prep",
-    "schedule_interview"
+    "schedule_interview",
+    "contact_leader"
 ]
 
 # Mapping of modules to their corresponding test results

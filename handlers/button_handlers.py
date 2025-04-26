@@ -1110,6 +1110,37 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Редактируем текущее сообщение вместо отправки нового
         return await send_main_menu(update, context, edit=True)
     
+    # Handler for contact_leader button
+    elif query.data == "contact_leader":
+        contact_message = (
+            "👨‍💼 Контакт руководителя:\n\n"
+            "Юрий Костенко\n"
+            "Telegram: @ITNS2023\n\n"
+            "Вы можете обратиться к нему по любым вопросам, связанным с процессом найма."
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                contact_message,
+                reply_markup=reply_markup
+            )
+            context.user_data["content_message_id"] = query.message.message_id
+        except Exception as e:
+            logger.error(f"Error editing message for contact information: {e}")
+            # If editing fails, send as a new message
+            message = await update.effective_chat.send_message(
+                text=contact_message,
+                reply_markup=reply_markup
+            )
+            context.user_data["content_message_id"] = message.message_id
+        
+        return CandidateStates.MAIN_MENU
+    
     # Обработка кнопки "Назад" в других местах, если такая кнопка используется
     elif query.data == "back":
         # Сохраняем ID текущего сообщения, если его нет в контексте
